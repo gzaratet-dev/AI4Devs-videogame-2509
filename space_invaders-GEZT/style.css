@@ -1,0 +1,140 @@
+/* ===== ESTILOS GENERALES ===== */
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: 'Courier New', monospace;
+    background-color: #121212;
+    color: #00ff00;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    overflow: hidden;
+}
+
+/* ===== CONTENEDOR PRINCIPAL ===== */
+.game-container {
+    position: relative;
+    width: 800px;
+    max-width: 95vw;
+    margin: 0 auto;
+}
+
+/* ===== PANEL DE INFORMACIÓN ===== */
+.info-panel {
+    display: flex;
+    justify-content: space-between;
+    padding: 10px 0;
+    font-size: 1.2rem;
+    color: #00ffff;
+    width: 100%;
+}
+
+.score-container, .lives-container {
+    display: flex;
+    align-items: center;
+}
+
+.score-label, .lives-label {
+    margin-right: 10px;
+}
+
+.lives {
+    display: flex;
+}
+
+.life {
+    width: 20px;
+    height: 20px;
+    background-color: #ff00ff;
+    margin: 0 5px;
+    clip-path: polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%);
+}
+
+/* ===== ÁREA DE JUEGO ===== */
+#gameCanvas {
+    background-color: #000000;
+    border: 2px solid #00ff00;
+    display: block;
+    margin: 0 auto;
+    width: 100%;
+    height: 500px;
+}
+
+/* ===== PANTALLAS DE ESTADO ===== */
+.screen {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    background-color: rgba(0, 0, 0, 0.85);
+    z-index: 10;
+    color: #00ff00;
+    text-align: center;
+}
+
+.screen h1 {
+    font-size: 3rem;
+    margin-bottom: 20px;
+    color: #ff00ff;
+    text-shadow: 0 0 10px #ff00ff;
+}
+
+.screen p {
+    font-size: 1.2rem;
+    margin-bottom: 30px;
+    max-width: 80%;
+}
+
+.btn {
+    background-color: transparent;
+    color: #00ff00;
+    border: 2px solid #00ff00;
+    padding: 10px 20px;
+    font-size: 1.2rem;
+    font-family: 'Courier New', monospace;
+    cursor: pointer;
+    transition: all 0.3s;
+    margin-top: 10px;
+}
+
+.btn:hover {
+    background-color: #00ff00;
+    color: #000000;
+    box-shadow: 0 0 15px #00ff00;
+}
+
+/* ===== INSTRUCCIONES ===== */
+.instructions {
+    margin-top: 20px;
+    text-align: center;
+    color: #00ffff;
+    font-size: 0.9rem;
+    max-width: 800px;
+    padding: 0 10px;
+}
+
+/* ===== RESPONSIVE ===== */
+@media (max-width: 600px) {
+    .info-panel {
+        font-size: 1rem;
+    }
+    
+    .screen h1 {
+        font-size: 2rem;
+    }
+    
+    .screen p {
+        font-size: 1rem;
+    }
+}
