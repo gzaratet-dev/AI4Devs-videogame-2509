@@ -1,3 +1,179 @@
+// ===== MANEJO DE ACTIVACIÓN DE SONIDO =====
+let audioEnabled = false;
+let audioContext;
+let audioInitialized = false;
+
+// Crear y mostrar el mensaje de activación de sonido
+function setupSoundPrompt() {
+    const prompt = document.createElement('div');
+    prompt.id = 'soundPrompt';
+    prompt.innerHTML = '🔊 Haz clic <span>aquí</span> o en cualquier parte para activar el sonido';
+    document.body.appendChild(prompt);
+    
+    // Función para activar el sonido
+    const enableAudio = async () => {
+        if (audioEnabled) return;
+        
+        try {
+            // Crear el contexto de audio
+            const AudioContext = window.AudioContext || window.webkitAudioContext;
+            audioContext = new AudioContext();
+            
+            // Crear un nodo de ganancia maestro
+            const masterGain = audioContext.createGain();
+            masterGain.gain.value = 0.7; // Volumen general
+            masterGain.connect(audioContext.destination);
+            
+            // Crear un oscilador de prueba silencioso
+            const oscillator = audioContext.createOscillator();
+            const gainNode = audioContext.createGain();
+            gainNode.gain.value = 0;
+            oscillator.connect(gainNode);
+            gainNode.connect(masterGain);
+            oscillator.start();
+            oscillator.stop(audioContext.currentTime + 0.1);
+            
+            audioEnabled = true;
+            audioInitialized = true;
+            prompt.style.display = 'none';
+            
+            // Reproducir un sonido de confirmación
+            setTimeout(() => playSound('ufo'), 100);
+        } catch (e) {
+            console.warn('No se pudo activar el audio:', e);
+        }
+    };
+    
+    // Configurar eventos para activar el sonido
+    prompt.addEventListener('click', enableAudio);
+    document.addEventListener('click', enableAudio, { once: true });
+    document.addEventListener('keydown', enableAudio, { once: true });
+}
+
+// Llamar a setupSoundPrompt cuando el DOM esté listo
+document.addEventListener('DOMContentLoaded', setupSoundPrompt);
+
+// ===== SISTEMA DE SONIDO =====
+// Configuración de sonidos
+const sounds = {
+    damage: {
+        type: 'sine',
+        frequency: 110,
+        frequencyEnd: 55,
+        duration: 0.3,
+        volume: 0.5,
+        attack: 0,
+        decay: 0.3
+    },
+    ufo: {
+        type: 'sawtooth',
+        frequency: 880,
+        frequencyEnd: 220,
+        duration: 0.5,
+        volume: 0.7,
+        attack: 0,
+        decay: 0.5
+    },
+    shoot: {
+        type: 'square',
+        frequency: 392,
+        frequencyEnd: 196,
+        duration: 0.15,
+        volume: 0.3,
+        attack: 0,
+        decay: 0.15
+    },
+    enemyShoot: {
+        type: 'sine',
+        frequency: 330,
+        frequencyEnd: 165,
+        duration: 0.2,
+        volume: 0.4,
+        attack: 0,
+        decay: 0.2
+    },
+    explosion: {
+        type: 'sawtooth',
+        frequency: 200,
+        frequencyEnd: 50,
+        duration: 0.4,
+        volume: 0.8,
+        attack: 0.05,
+        decay: 0.35
+    },
+    powerup: {
+        type: 'sine',
+        frequency: 523.25,
+        frequencyEnd: 1046.5,
+        duration: 0.3,
+        volume: 0.6,
+        attack: 0.05,
+        decay: 0.25
+    }
+};
+
+// Función para reproducir sonidos
+function playSound(type) {
+    if (!audioEnabled || !audioContext || audioContext.state === 'suspended') {
+        return;
+    }
+    
+    const sound = sounds[type];
+    if (!sound) {
+        console.warn(`Sonido no encontrado: ${type}`);
+        return;
+    }
+    
+    try {
+        const now = audioContext.currentTime;
+        const oscillator = audioContext.createOscillator();
+        const gainNode = audioContext.createGain();
+        
+        // Configuración del oscilador
+        oscillator.type = sound.type;
+        oscillator.frequency.setValueAtTime(sound.frequency, now);
+        
+        // Aplicar cambio de frecuencia si está definido
+        if (sound.frequencyEnd !== undefined) {
+            oscillator.frequency.exponentialRampToValueAtTime(
+                sound.frequencyEnd, 
+                now + sound.duration
+            );
+        }
+        
+        // Configuración de la envolvente de volumen
+        gainNode.gain.setValueAtTime(0, now);
+        gainNode.gain.linearRampToValueAtTime(
+            sound.volume, 
+            now + sound.attack
+        );
+        gainNode.gain.exponentialRampToValueAtTime(
+            0.01, 
+            now + sound.attack + sound.decay
+        );
+        
+        // Conectar nodos
+        oscillator.connect(gainNode);
+        gainNode.connect(audioContext.destination);
+        
+        // Reproducir
+        oscillator.start(now);
+        oscillator.stop(now + sound.duration + 0.1);
+        
+        // Limpieza
+        oscillator.addEventListener('ended', () => {
+            try {
+                oscillator.disconnect();
+                gainNode.disconnect();
+            } catch (e) {
+                console.warn('Error al limpiar nodos de audio:', e);
+            }
+        });
+    } catch (e) {
+        console.warn('Error al reproducir sonido:', e);
+    }
+}
+
 // ===== VALIDACIÓN DEL DOM =====
 /**
  * Obtiene un elemento del DOM y valida su existencia
@@ -229,7 +405,7 @@ function movePlayer(direction) {
  */
 function playerShoot() {
     if (!gameActive || playerProjectiles.length >= MAX_PLAYER_PROJECTILES) return;
-
+    
     playerProjectiles.push({
         x: player.x + player.width / 2 - 2,
         y: player.y,
@@ -237,6 +413,9 @@ function playerShoot() {
         height: 10,
         speed: -PROJECTILE_SPEED // Hacia arriba
     });
+    
+    // Sonido de disparo del jugador
+    playSound('shoot');
 }
 
 // ===== MOVIMIENTO Y COMPORTAMIENTO DE ENEMIGOS =====
@@ -312,6 +491,9 @@ function enemyShoot() {
     });
 
     lastEnemyShotTime = currentTime;
+    
+    // Sonido de disparo enemigo - Aseguramos que se llame
+    setTimeout(() => playSound('enemyShoot'), 0);
 }
 
 // ===== DETECCIÓN DE COLISIONES =====
@@ -374,6 +556,8 @@ function checkProjectileCollisions() {
                     nextLevel();
                 }
 
+                // Sonido de explosión - Aseguramos que se llame
+                setTimeout(() => playSound('explosion'), 0);
                 break;
             }
         }
@@ -450,6 +634,9 @@ function loseLife() {
             lostLife.classList.add('lost');
         }
     }
+    
+    // Reproducir sonido de daño
+    playSound('damage');
     
     // Agregar efecto de sacudida a la pantalla
     canvas.classList.add('screen-shake');
