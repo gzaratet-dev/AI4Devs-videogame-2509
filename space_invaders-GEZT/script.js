@@ -16,9 +16,9 @@ const CONFIG = {
         HEIGHT: 30,
         GAP: 10,
         BASE_SPEED: 1,
-        SPEED_INCREMENT: 0.3, // Reducido de 1.5 a 0.3
-        SHOOT_INTERVAL: 800, // Reducido de 1000 a 800ms
-        GAME_OVER_MARGIN: 120 // Aumentado de 80 a 120
+        SPEED_INCREMENT: 0.3,
+        SHOOT_INTERVAL: 800,
+        GAME_OVER_MARGIN: 120
     },
     SHIELD: {
         COUNT: 4,
@@ -30,8 +30,25 @@ const CONFIG = {
         WIDTH: 60,
         HEIGHT: 30,
         SPEED: 2,
-        APPEARANCE_INTERVAL: 3000, // Reducido de 5000 a 3000
-        APPEARANCE_CHANCE: 0.15 // Aumentado de 0.05 a 0.15
+        APPEARANCE_INTERVAL: 3000,
+        APPEARANCE_CHANCE: 0.15,
+        POWERUP_CHANCE: 0.6 // 60% de probabilidad de soltar power-up
+    },
+    POWERUP: {
+        WIDTH: 30,
+        HEIGHT: 30,
+        SPEED: 2,
+        DURATION: 10000, // 10 segundos
+        TYPES: {
+            RAPID_FIRE: { color: '#ffff00', label: 'RAPID FIRE' },
+            SHIELD_REPAIR: { color: '#00ff00', label: 'SHIELD REPAIR' },
+            EXTRA_LIFE: { color: '#ff00ff', label: 'EXTRA LIFE' }
+        }
+    },
+    PARTICLE: {
+        COUNT: 15,
+        MAX_LIFE: 60,
+        SPEED: 3
     }
 };
 
@@ -43,16 +60,16 @@ const AudioManager = {
 
     async init() {
         if (this.enabled) return;
-        
+
         try {
             const AudioContext = window.AudioContext || window.webkitAudioContext;
             this.context = new AudioContext();
-            
+
             // Crear nodo de ganancia maestro
             this.masterGain = this.context.createGain();
             this.masterGain.gain.value = 0.7;
             this.masterGain.connect(this.context.destination);
-            
+
             // Oscilador de prueba silencioso
             const oscillator = this.context.createOscillator();
             const gainNode = this.context.createGain();
@@ -61,7 +78,7 @@ const AudioManager = {
             gainNode.connect(this.masterGain);
             oscillator.start();
             oscillator.stop(this.context.currentTime + 0.1);
-            
+
             this.enabled = true;
             return true;
         } catch (e) {
@@ -74,36 +91,36 @@ const AudioManager = {
         if (!this.enabled || !this.context || this.context.state === 'suspended') {
             return;
         }
-        
+
         const sound = this.sounds[type];
         if (!sound) return;
-        
+
         try {
             const now = this.context.currentTime;
             const oscillator = this.context.createOscillator();
             const gainNode = this.context.createGain();
-            
+
             oscillator.type = sound.type;
             oscillator.frequency.setValueAtTime(sound.frequency, now);
-            
+
             if (sound.frequencyEnd !== undefined) {
                 oscillator.frequency.exponentialRampToValueAtTime(
-                    sound.frequencyEnd, 
+                    sound.frequencyEnd,
                     now + sound.duration
                 );
             }
-            
+
             // Envolvente ADSR
             gainNode.gain.setValueAtTime(0, now);
             gainNode.gain.linearRampToValueAtTime(sound.volume, now + sound.attack);
             gainNode.gain.exponentialRampToValueAtTime(0.01, now + sound.attack + sound.decay);
-            
+
             oscillator.connect(gainNode);
             gainNode.connect(this.masterGain);
-            
+
             oscillator.start(now);
             oscillator.stop(now + sound.duration + 0.1);
-            
+
             // Limpieza automática
             oscillator.onended = () => {
                 try {
@@ -191,7 +208,7 @@ function setupSoundPrompt() {
     prompt.id = 'soundPrompt';
     prompt.innerHTML = '🔊 <span>Haz clic para activar el sonido</span>';
     document.body.appendChild(prompt);
-    
+
     const enableAudio = async () => {
         const success = await AudioManager.init();
         if (success) {
@@ -199,7 +216,7 @@ function setupSoundPrompt() {
             setTimeout(() => prompt.remove(), 300);
         }
     };
-    
+
     prompt.addEventListener('click', enableAudio);
     document.addEventListener('click', enableAudio, { once: true });
     document.addEventListener('keydown', enableAudio, { once: true });
@@ -237,7 +254,7 @@ const GameState = {
     level: 1,
     animationId: null,
     inputAnimationId: null,
-    
+
     // Entidades
     player: {
         x: DOM.canvas.width / 2 - CONFIG.PLAYER.WIDTH / 2,
@@ -251,16 +268,16 @@ const GameState = {
     enemyProjectiles: [],
     shields: [],
     ufo: null,
-    
+
     // Control de enemigos
     enemyDirection: 1,
     enemySpeed: CONFIG.ENEMY.BASE_SPEED,
     lastEnemyShotTime: 0,
     lastUfoTime: 0,
-    
+
     // Efectos visuales
     playerHitEffect: false,
-    
+
     reset() {
         this.active = true;
         this.paused = false;
@@ -272,11 +289,11 @@ const GameState = {
         this.lastEnemyShotTime = 0;
         this.lastUfoTime = 0;
         this.playerHitEffect = false;
-        
+
         // Resetear posición del jugador
         this.player.x = DOM.canvas.width / 2 - CONFIG.PLAYER.WIDTH / 2;
         this.player.y = DOM.canvas.height - 40;
-        
+
         // Limpiar arrays
         this.invaders = [];
         this.playerProjectiles = [];
@@ -308,7 +325,7 @@ const EntityFactory = {
     createShields() {
         const shields = [];
         const spacing = DOM.canvas.width / (CONFIG.SHIELD.COUNT + 1);
-        
+
         for (let i = 1; i <= CONFIG.SHIELD.COUNT; i++) {
             shields.push({
                 x: spacing * i - CONFIG.SHIELD.WIDTH / 2,
@@ -353,9 +370,9 @@ const UI = {
         // Solo actualizar si el número de vidas ha cambiado
         const currentLivesCount = DOM.livesDisplay.children.length;
         if (currentLivesCount === GameState.lives) return;
-        
+
         DOM.livesDisplay.innerHTML = '';
-        
+
         for (let i = 0; i < GameState.lives; i++) {
             const lifeElement = document.createElement('div');
             lifeElement.className = 'life';
@@ -375,7 +392,7 @@ const UI = {
     showPlayerHit() {
         DOM.canvas.classList.add('screen-shake');
         GameState.playerHitEffect = true;
-        
+
         setTimeout(() => {
             DOM.canvas.classList.remove('screen-shake');
             GameState.playerHitEffect = false;
@@ -392,9 +409,9 @@ const UI = {
             </div>
         `;
         document.body.appendChild(overlay);
-        
+
         AudioManager.play('levelComplete');
-        
+
         setTimeout(() => {
             overlay.style.opacity = '0';
             setTimeout(() => overlay.remove(), 300);
@@ -419,19 +436,19 @@ const PlayerController = {
     init() {
         window.addEventListener('keydown', (e) => {
             this.keys[e.key] = true;
-            
+
             if (e.key === ' ' && GameState.active && !GameState.paused) {
                 this.shoot();
                 e.preventDefault();
             }
-            
+
             // Pausa con P o ESC
             if ((e.key === 'p' || e.key === 'P' || e.key === 'Escape') && GameState.active) {
                 Game.togglePause();
                 e.preventDefault();
             }
         });
-        
+
         window.addEventListener('keyup', (e) => {
             this.keys[e.key] = false;
         });
@@ -439,9 +456,9 @@ const PlayerController = {
 
     move(direction) {
         if (!GameState.active || GameState.paused) return;
-        
+
         GameState.player.x += GameState.player.speed * direction;
-        
+
         // Limitar movimiento
         if (GameState.player.x < 0) GameState.player.x = 0;
         if (GameState.player.x + GameState.player.width > DOM.canvas.width) {
@@ -451,13 +468,13 @@ const PlayerController = {
 
     shoot() {
         if (GameState.playerProjectiles.length >= CONFIG.PROJECTILE.MAX_PLAYER) return;
-        
+
         const projectile = EntityFactory.createProjectile(
             GameState.player.x + GameState.player.width / 2 - 2,
             GameState.player.y,
             true
         );
-        
+
         GameState.playerProjectiles.push(projectile);
         AudioManager.play('shoot');
     },
@@ -477,36 +494,36 @@ const EnemyController = {
     move() {
         let moveDown = false;
         const margin = 20;
-        
+
         // Verificar si algún invasor llegó al borde
         for (const invader of GameState.invaders) {
             if (!invader.alive) continue;
-            
+
             if ((invader.x + invader.width >= DOM.canvas.width - margin && GameState.enemyDirection === 1) ||
                 (invader.x <= margin && GameState.enemyDirection === -1)) {
                 moveDown = true;
                 break;
             }
         }
-        
+
         // Cambiar dirección si es necesario
         if (moveDown) {
             GameState.enemyDirection *= -1;
         }
-        
+
         // Mover invasores y verificar game over
         let lowestY = 0;
         for (const invader of GameState.invaders) {
             if (!invader.alive) continue;
-            
+
             if (moveDown) invader.y += 15;
             invader.x += GameState.enemySpeed * GameState.enemyDirection;
-            
+
             if (invader.y + invader.height > lowestY) {
                 lowestY = invader.y + invader.height;
             }
         }
-        
+
         // Verificar game over
         if (lowestY >= GameState.player.y - CONFIG.ENEMY.GAME_OVER_MARGIN) {
             Game.over();
@@ -516,17 +533,17 @@ const EnemyController = {
     shoot() {
         const currentTime = Date.now();
         if (currentTime - GameState.lastEnemyShotTime < CONFIG.ENEMY.SHOOT_INTERVAL) return;
-        
+
         const aliveInvaders = GameState.invaders.filter(inv => inv.alive);
         if (aliveInvaders.length === 0) return;
-        
+
         const shooter = aliveInvaders[Math.floor(Math.random() * aliveInvaders.length)];
         const projectile = EntityFactory.createProjectile(
             shooter.x + shooter.width / 2 - 2,
             shooter.y + shooter.height,
             false
         );
-        
+
         GameState.enemyProjectiles.push(projectile);
         GameState.lastEnemyShotTime = currentTime;
         AudioManager.play('enemyShoot');
@@ -544,20 +561,20 @@ const EnemyController = {
 const UFOController = {
     update() {
         const currentTime = Date.now();
-        
+
         // Crear UFO si es tiempo
-        if (!GameState.ufo && 
+        if (!GameState.ufo &&
             currentTime - GameState.lastUfoTime > CONFIG.UFO.APPEARANCE_INTERVAL &&
             Math.random() < CONFIG.UFO.APPEARANCE_CHANCE) {
             GameState.ufo = EntityFactory.createUFO();
             GameState.lastUfoTime = currentTime;
             AudioManager.play('ufo');
         }
-        
+
         // Mover UFO
         if (GameState.ufo) {
             GameState.ufo.x += GameState.ufo.speed;
-            
+
             // Eliminar si sale de pantalla
             if (GameState.ufo.x > DOM.canvas.width) {
                 GameState.ufo = null;
@@ -570,9 +587,9 @@ const UFOController = {
 const CollisionSystem = {
     checkAABB(rect1, rect2) {
         return rect1.x < rect2.x + rect2.width &&
-               rect1.x + rect1.width > rect2.x &&
-               rect1.y < rect2.y + rect2.height &&
-               rect1.y + rect1.height > rect2.y;
+            rect1.x + rect1.width > rect2.x &&
+            rect1.y < rect2.y + rect2.height &&
+            rect1.y + rect1.height > rect2.y;
     },
 
     checkAll() {
@@ -584,9 +601,9 @@ const CollisionSystem = {
         for (let i = GameState.playerProjectiles.length - 1; i >= 0; i--) {
             const projectile = GameState.playerProjectiles[i];
             if (!projectile) continue;
-            
+
             let hit = false;
-            
+
             // Colisión con invasores
             for (const invader of GameState.invaders) {
                 if (invader.alive && this.checkAABB(projectile, invader)) {
@@ -596,7 +613,7 @@ const CollisionSystem = {
                     UI.updateScore();
                     EnemyController.updateSpeed();
                     AudioManager.play('explosion');
-                    
+
                     // Verificar si todos murieron
                     if (GameState.invaders.every(inv => !inv.alive)) {
                         Game.nextLevel();
@@ -605,9 +622,9 @@ const CollisionSystem = {
                     break;
                 }
             }
-            
+
             if (hit) continue;
-            
+
             // Colisión con UFO
             if (GameState.ufo && this.checkAABB(projectile, GameState.ufo)) {
                 GameState.playerProjectiles.splice(i, 1);
@@ -617,7 +634,7 @@ const CollisionSystem = {
                 AudioManager.play('powerup');
                 continue;
             }
-            
+
             // Colisión con escudos
             for (const shield of GameState.shields) {
                 if (shield.health > 0 && this.checkAABB(projectile, shield)) {
@@ -633,14 +650,14 @@ const CollisionSystem = {
         for (let i = GameState.enemyProjectiles.length - 1; i >= 0; i--) {
             const projectile = GameState.enemyProjectiles[i];
             if (!projectile) continue;
-            
+
             // Colisión con jugador
             if (this.checkAABB(projectile, GameState.player)) {
                 GameState.enemyProjectiles.splice(i, 1);
                 this.playerHit();
                 continue;
             }
-            
+
             // Colisión con escudos
             for (const shield of GameState.shields) {
                 if (shield.health > 0 && this.checkAABB(projectile, shield)) {
@@ -654,12 +671,12 @@ const CollisionSystem = {
 
     playerHit() {
         if (GameState.lives <= 0) return;
-        
+
         GameState.lives--;
         UI.animateLifeLost();
         UI.showPlayerHit();
         AudioManager.play('damage');
-        
+
         if (GameState.lives <= 0) {
             setTimeout(() => Game.over(), 1000);
         }
@@ -672,16 +689,16 @@ const ProjectileSystem = {
         // Proyectiles del jugador
         for (let i = GameState.playerProjectiles.length - 1; i >= 0; i--) {
             GameState.playerProjectiles[i].y += GameState.playerProjectiles[i].speed;
-            
+
             if (GameState.playerProjectiles[i].y < 0) {
                 GameState.playerProjectiles.splice(i, 1);
             }
         }
-        
+
         // Proyectiles enemigos
         for (let i = GameState.enemyProjectiles.length - 1; i >= 0; i--) {
             GameState.enemyProjectiles[i].y += GameState.enemyProjectiles[i].speed;
-            
+
             if (GameState.enemyProjectiles[i].y > DOM.canvas.height) {
                 GameState.enemyProjectiles.splice(i, 1);
             }
@@ -703,10 +720,10 @@ const Renderer = {
         } else {
             ctx.fillStyle = '#00ff00';
         }
-        
-        ctx.fillRect(GameState.player.x, GameState.player.y, 
-                     GameState.player.width, GameState.player.height);
-        
+
+        ctx.fillRect(GameState.player.x, GameState.player.y,
+            GameState.player.width, GameState.player.height);
+
         // Base del jugador
         ctx.beginPath();
         ctx.moveTo(GameState.player.x, GameState.player.y);
@@ -719,10 +736,10 @@ const Renderer = {
     drawInvaders() {
         for (const invader of GameState.invaders) {
             if (!invader.alive) continue;
-            
+
             ctx.fillStyle = '#ff00ff';
             ctx.fillRect(invader.x, invader.y, invader.width, invader.height);
-            
+
             // Detalles
             ctx.fillStyle = '#00ffff';
             ctx.fillRect(invader.x + 5, invader.y + 5, invader.width - 10, 5);
@@ -737,7 +754,7 @@ const Renderer = {
         for (const p of GameState.playerProjectiles) {
             ctx.fillRect(p.x, p.y, p.width, p.height);
         }
-        
+
         // Proyectiles enemigos
         ctx.fillStyle = '#ff0000';
         for (const p of GameState.enemyProjectiles) {
@@ -748,10 +765,10 @@ const Renderer = {
     drawShields() {
         for (const shield of GameState.shields) {
             if (shield.health <= 0) continue;
-            
+
             const greenValue = Math.floor(255 * (shield.health / 100));
             ctx.fillStyle = `rgb(0, ${greenValue}, 0)`;
-            
+
             ctx.beginPath();
             ctx.moveTo(shield.x, shield.y + shield.height);
             ctx.lineTo(shield.x + 10, shield.y + shield.height - 10);
@@ -768,39 +785,39 @@ const Renderer = {
 
     drawUFO() {
         if (!GameState.ufo) return;
-        
+
         ctx.fillStyle = '#ffff00';
         ctx.beginPath();
-        ctx.ellipse(GameState.ufo.x + GameState.ufo.width / 2, 
-                    GameState.ufo.y + GameState.ufo.height / 2,
-                    GameState.ufo.width / 2, GameState.ufo.height / 2, 
-                    0, 0, Math.PI * 2);
+        ctx.ellipse(GameState.ufo.x + GameState.ufo.width / 2,
+            GameState.ufo.y + GameState.ufo.height / 2,
+            GameState.ufo.width / 2, GameState.ufo.height / 2,
+            0, 0, Math.PI * 2);
         ctx.fill();
-        
+
         // Detalles
         ctx.fillStyle = '#ff6600';
-        ctx.fillRect(GameState.ufo.x + 10, GameState.ufo.y + 5, 
-                     GameState.ufo.width - 20, 5);
-        ctx.fillRect(GameState.ufo.x + 15, GameState.ufo.y + GameState.ufo.height - 10, 
-                     GameState.ufo.width - 30, 5);
+        ctx.fillRect(GameState.ufo.x + 10, GameState.ufo.y + 5,
+            GameState.ufo.width - 20, 5);
+        ctx.fillRect(GameState.ufo.x + 15, GameState.ufo.y + GameState.ufo.height - 10,
+            GameState.ufo.width - 30, 5);
     },
 
     drawUI() {
         ctx.fillStyle = '#00ffff';
         ctx.font = '16px "Courier New"';
         ctx.fillText(`NIVEL: ${GameState.level}`, 10, 25);
-        
+
         if (GameState.paused) {
             ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
             ctx.fillRect(0, 0, DOM.canvas.width, DOM.canvas.height);
-            
+
             ctx.fillStyle = '#00ff00';
             ctx.font = '48px "Courier New"';
             ctx.textAlign = 'center';
             ctx.fillText('PAUSA', DOM.canvas.width / 2, DOM.canvas.height / 2);
             ctx.font = '16px "Courier New"';
-            ctx.fillText('Presiona P o ESC para continuar', 
-                        DOM.canvas.width / 2, DOM.canvas.height / 2 + 40);
+            ctx.fillText('Presiona P o ESC para continuar',
+                DOM.canvas.width / 2, DOM.canvas.height / 2 + 40);
             ctx.textAlign = 'left';
         }
     },
@@ -822,11 +839,11 @@ const Game = {
         GameState.reset();
         GameState.invaders = EntityFactory.createInvaders();
         GameState.shields = EntityFactory.createShields();
-        
+
         UI.updateScore();
         UI.updateLives();
         UI.hideScreens();
-        
+
         this.start();
     },
 
@@ -843,7 +860,7 @@ const Game = {
 
     update() {
         if (!GameState.active || GameState.paused) return;
-        
+
         EnemyController.move();
         EnemyController.shoot();
         ProjectileSystem.update();
@@ -854,7 +871,7 @@ const Game = {
     loop() {
         this.update();
         Renderer.render();
-        
+
         if (GameState.active) {
             GameState.animationId = requestAnimationFrame(() => this.loop());
         }
@@ -868,27 +885,27 @@ const Game = {
 
     nextLevel() {
         GameState.level++;
-        
+
         // Mostrar pantalla de nivel completado
         UI.showLevelComplete();
-        
+
         // Pausar el juego temporalmente
         GameState.paused = true;
-        
+
         setTimeout(() => {
             // Limpiar proyectiles
             GameState.playerProjectiles = [];
             GameState.enemyProjectiles = [];
-            
+
             // Reparar escudos
             for (const shield of GameState.shields) {
                 shield.health = CONFIG.SHIELD.MAX_HEALTH;
             }
-            
+
             // Crear nueva oleada
             GameState.invaders = EntityFactory.createInvaders();
             GameState.enemySpeed = CONFIG.ENEMY.BASE_SPEED + GameState.level * 0.3;
-            
+
             // Reanudar el juego
             GameState.paused = false;
         }, 2500);

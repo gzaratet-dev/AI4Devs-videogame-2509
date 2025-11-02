@@ -5,6 +5,39 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Space Invaders - Retro Edition</title>
     <style>
+        /* ===== NOTIFICACIONES DE POWER-UP ===== */
+        .powerup-notification {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: linear-gradient(135deg, rgba(255, 255, 0, 0.9), rgba(255, 165, 0, 0.9));
+            color: #000;
+            padding: 20px 40px;
+            border-radius: 10px;
+            font-family: 'Courier New', monospace;
+            font-size: 24px;
+            font-weight: bold;
+            z-index: 2000;
+            box-shadow: 0 0 30px rgba(255, 255, 0, 0.8);
+            animation: powerupPop 0.5s ease-out;
+            transition: opacity 0.3s ease;
+        }
+
+        @keyframes powerupPop {
+            0% {
+                transform: translate(-50%, -50%) scale(0);
+                opacity: 0;
+            }
+            50% {
+                transform: translate(-50%, -50%) scale(1.2);
+            }
+            100% {
+                transform: translate(-50%, -50%) scale(1);
+                opacity: 1;
+            }
+        }
+
         /* ===== MENSAJE DE ACTIVACIÓN DE SONIDO ===== */
         #soundPrompt {
             position: fixed;
@@ -190,6 +223,7 @@
             font-size: 1.2rem;
             margin-bottom: 30px;
             max-width: 80%;
+            line-height: 1.6;
         }
 
         .btn {
@@ -323,6 +357,11 @@
             .level-complete-content p {
                 font-size: 1.2rem;
             }
+            
+            .powerup-notification {
+                font-size: 18px;
+                padding: 15px 30px;
+            }
         }
     </style>
 </head>
@@ -347,7 +386,8 @@
             <button id="startBtn" class="btn">INICIAR JUEGO</button>
             <div class="instructions">
                 <p><strong>Controles:</strong> Flechas o A/D para mover • Espacio para disparar • P o ESC para pausar</p>
-                <p>Destruye todos los invasores antes de que lleguen al suelo. ¡Cuidado con sus disparos!</p>
+                <p><strong>Power-ups:</strong> Destruye OVNIs para obtener mejoras especiales:<br>
+                ⚡ Disparo Rápido • 🛡️ Reparar Escudos • ❤️ Vida Extra</p>
             </div>
         </div>
 
