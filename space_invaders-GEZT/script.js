@@ -170,10 +170,26 @@ function updateScore() {
  * Actualiza las vidas mostradas en pantalla
  */
 function updateLives() {
+    // Guardar el estado de animación de la última vida si existe
+    const lastLife = livesDisplay.querySelector('.life:last-child');
+    const wasLost = lastLife && lastLife.classList.contains('lost');
+    
+    // Reconstruir el contenedor de vidas
     livesDisplay.innerHTML = '';
+    
+    // Crear los elementos de vida
     for (let i = 0; i < lives; i++) {
         const lifeElement = document.createElement('div');
         lifeElement.className = 'life';
+        
+        // Si es la última vida y estaba en estado de pérdida, mantener la animación
+        if (i === lives - 1 && wasLost) {
+            // Usar setTimeout para permitir que el navegador aplique primero la clase 'life'
+            setTimeout(() => {
+                lifeElement.classList.add('lost');
+            }, 10);
+        }
+        
         livesDisplay.appendChild(lifeElement);
     }
 }
@@ -416,11 +432,34 @@ function checkProjectileCollisions() {
  * Pierde una vida y verifica si es game over
  */
 function loseLife() {
+    // Si ya no hay vidas, no hacer nada
+    if (lives <= 0) return;
+    
+    // Guardar la vida que se va a perder
+    const currentLives = lives;
     lives--;
+    
+    // Agregar clase de animación a la vida que se perdió
     updateLives();
-
+    
+    // Si hay vidas restantes, agregar clase de animación a la vida que se acaba de perder
+    if (lives > 0) {
+        const lifeElements = document.querySelectorAll('.life');
+        if (lifeElements.length > 0) {
+            const lostLife = lifeElements[Math.min(currentLives - 1, lifeElements.length - 1)];
+            lostLife.classList.add('lost');
+        }
+    }
+    
+    // Agregar efecto de sacudida a la pantalla
+    canvas.classList.add('screen-shake');
+    setTimeout(() => {
+        canvas.classList.remove('screen-shake');
+    }, 500);
+    
     if (lives <= 0) {
-        gameOver();
+        // Pequeño retraso para que se vea la animación antes del game over
+        setTimeout(() => gameOver(), 1000);
     }
 }
 

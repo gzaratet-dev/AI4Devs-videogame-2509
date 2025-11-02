@@ -51,9 +51,46 @@ body {
 .life {
     width: 20px;
     height: 20px;
-    background-color: #ff00ff;
+    background-color: #0f0;
+    border-radius: 50%;
     margin: 0 5px;
-    clip-path: polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%);
+    display: inline-block;
+    transition: transform 0.3s ease, opacity 0.3s ease;
+}
+
+.life.lost {
+    animation: lifeLost 1s ease-out;
+    transform: scale(1.5);
+}
+
+@keyframes lifeLost {
+    0% { 
+        transform: scale(1);
+        background-color: #0f0;
+        opacity: 1;
+    }
+    50% { 
+        transform: scale(1.8);
+        background-color: #ff0;
+        box-shadow: 0 0 15px #ff0;
+        opacity: 0.8;
+    }
+    100% { 
+        transform: scale(1);
+        background-color: #f00;
+        opacity: 1;
+    }
+}
+
+/* Efecto de parpadeo en el canvas cuando se pierde una vida */
+@keyframes screenShake {
+    0%, 100% { transform: translateX(0); }
+    10%, 30%, 50%, 70%, 90% { transform: translateX(-5px); }
+    20%, 40%, 60%, 80% { transform: translateX(5px); }
+}
+
+.screen-shake {
+    animation: screenShake 0.5s ease-out;
 }
 
 /* ===== ÁREA DE JUEGO ===== */
