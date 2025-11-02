@@ -32,13 +32,15 @@ const CONFIG = {
         SPEED: 2,
         APPEARANCE_INTERVAL: 3000,
         APPEARANCE_CHANCE: 0.15,
-        POWERUP_CHANCE: 0.6 // 60% de probabilidad de soltar power-up
+        POWERUP_CHANCE: 0.6,
+        SHOOT_INTERVAL: 1500, // Intervalo de disparo del OVNI
+        SHOOT_CHANCE: 0.3 // 30% de probabilidad de disparar
     },
     POWERUP: {
         WIDTH: 30,
         HEIGHT: 30,
         SPEED: 2,
-        DURATION: 10000, // 10 segundos
+        DURATION: 10000,
         TYPES: {
             RAPID_FIRE: { color: '#ffff00', label: 'RAPID FIRE' },
             SHIELD_REPAIR: { color: '#00ff00', label: 'SHIELD REPAIR' },
@@ -57,6 +59,9 @@ const AudioManager = {
     enabled: false,
     context: null,
     masterGain: null,
+    musicGain: null,
+    musicOscillators: [],
+    musicPlaying: false,
 
     async init() {
         if (this.enabled) return;
@@ -69,6 +74,11 @@ const AudioManager = {
             this.masterGain = this.context.createGain();
             this.masterGain.gain.value = 0.7;
             this.masterGain.connect(this.context.destination);
+
+            // Crear nodo de ganancia para música
+            this.musicGain = this.context.createGain();
+            this.musicGain.gain.value = 0.15; // Música más suave
+            this.musicGain.connect(this.masterGain);
 
             // Oscilador de prueba silencioso
             const oscillator = this.context.createOscillator();
@@ -85,6 +95,60 @@ const AudioManager = {
             console.error('Error al activar el audio:', e);
             return false;
         }
+    },
+
+    // Sistema de música de fondo procedural
+    startBackgroundMusic() {
+        if (!this.enabled || this.musicPlaying) return;
+        
+        this.musicPlaying = true;
+        
+        // Secuencia de notas (escala menor para ambiente espacial)
+        const notes = [
+            { freq: 220, duration: 0.4 },   // A3
+            { freq: 220, duration: 0.4 },   // A3
+            { freq: 246.94, duration: 0.4 }, // B3
+            { freq: 220, duration: 0.4 },   // A3
+            { freq: 196, duration: 0.4 },   // G3
+            { freq: 174.61, duration: 0.4 }, // F3
+            { freq: 196, duration: 0.4 },   // G3
+            { freq: 220, duration: 0.8 }    // A3 (más larga)
+        ];
+
+        let noteIndex = 0;
+        const playNote = () => {
+            if (!this.musicPlaying || !this.enabled) return;
+
+            const note = notes[noteIndex % notes.length];
+            
+            const osc = this.context.createOscillator();
+            const gain = this.context.createGain();
+            
+            osc.type = 'square';
+            osc.frequency.value = note.freq;
+            
+            const now = this.context.currentTime;
+            gain.gain.setValueAtTime(0, now);
+            gain.gain.linearRampToValueAtTime(0.3, now + 0.05);
+            gain.gain.linearRampToValueAtTime(0, now + note.duration);
+            
+            osc.connect(gain);
+            gain.connect(this.musicGain);
+            
+            osc.start(now);
+            osc.stop(now + note.duration);
+            
+            noteIndex++;
+            
+            // Programar siguiente nota
+            setTimeout(playNote, note.duration * 1000);
+        };
+
+        playNote();
+    },
+
+    stopBackgroundMusic() {
+        this.musicPlaying = false;
     },
 
     play(type) {
@@ -121,7 +185,6 @@ const AudioManager = {
             oscillator.start(now);
             oscillator.stop(now + sound.duration + 0.1);
 
-            // Limpieza automática
             oscillator.onended = () => {
                 try {
                     oscillator.disconnect();
@@ -153,6 +216,15 @@ const AudioManager = {
             volume: 0.6,
             attack: 0.2,
             decay: 0.6
+        },
+        ufoShoot: {
+            type: 'triangle',
+            frequency: 440,
+            frequencyEnd: 220,
+            duration: 0.25,
+            volume: 0.4,
+            attack: 0,
+            decay: 0.25
         },
         shoot: {
             type: 'square',
@@ -266,6 +338,7 @@ const GameState = {
     invaders: [],
     playerProjectiles: [],
     enemyProjectiles: [],
+    ufoProjectiles: [], // Nueva categoría para proyectiles del OVNI
     shields: [],
     ufo: null,
 
@@ -274,6 +347,7 @@ const GameState = {
     enemySpeed: CONFIG.ENEMY.BASE_SPEED,
     lastEnemyShotTime: 0,
     lastUfoTime: 0,
+    lastUfoShotTime: 0, // Control de disparos del OVNI
 
     // Efectos visuales
     playerHitEffect: false,
@@ -288,6 +362,7 @@ const GameState = {
         this.enemySpeed = CONFIG.ENEMY.BASE_SPEED;
         this.lastEnemyShotTime = 0;
         this.lastUfoTime = 0;
+        this.lastUfoShotTime = 0;
         this.playerHitEffect = false;
 
         // Resetear posición del jugador
@@ -298,6 +373,7 @@ const GameState = {
         this.invaders = [];
         this.playerProjectiles = [];
         this.enemyProjectiles = [];
+        this.ufoProjectiles = [];
         this.shields = [];
         this.ufo = null;
     }
@@ -367,7 +443,6 @@ const UI = {
     },
 
     updateLives() {
-        // Solo actualizar si el número de vidas ha cambiado
         const currentLivesCount = DOM.livesDisplay.children.length;
         if (currentLivesCount === GameState.lives) return;
 
@@ -442,7 +517,6 @@ const PlayerController = {
                 e.preventDefault();
             }
 
-            // Pausa con P o ESC
             if ((e.key === 'p' || e.key === 'P' || e.key === 'Escape') && GameState.active) {
                 Game.togglePause();
                 e.preventDefault();
@@ -459,7 +533,6 @@ const PlayerController = {
 
         GameState.player.x += GameState.player.speed * direction;
 
-        // Limitar movimiento
         if (GameState.player.x < 0) GameState.player.x = 0;
         if (GameState.player.x + GameState.player.width > DOM.canvas.width) {
             GameState.player.x = DOM.canvas.width - GameState.player.width;
@@ -495,7 +568,6 @@ const EnemyController = {
         let moveDown = false;
         const margin = 20;
 
-        // Verificar si algún invasor llegó al borde
         for (const invader of GameState.invaders) {
             if (!invader.alive) continue;
 
@@ -506,12 +578,10 @@ const EnemyController = {
             }
         }
 
-        // Cambiar dirección si es necesario
         if (moveDown) {
             GameState.enemyDirection *= -1;
         }
 
-        // Mover invasores y verificar game over
         let lowestY = 0;
         for (const invader of GameState.invaders) {
             if (!invader.alive) continue;
@@ -524,7 +594,6 @@ const EnemyController = {
             }
         }
 
-        // Verificar game over
         if (lowestY >= GameState.player.y - CONFIG.ENEMY.GAME_OVER_MARGIN) {
             Game.over();
         }
@@ -568,17 +637,41 @@ const UFOController = {
             Math.random() < CONFIG.UFO.APPEARANCE_CHANCE) {
             GameState.ufo = EntityFactory.createUFO();
             GameState.lastUfoTime = currentTime;
+            GameState.lastUfoShotTime = currentTime; // Resetear tiempo de disparo
             AudioManager.play('ufo');
         }
 
-        // Mover UFO
+        // Mover UFO y disparar
         if (GameState.ufo) {
             GameState.ufo.x += GameState.ufo.speed;
+
+            // El OVNI dispara mientras está en pantalla
+            this.shoot(currentTime);
 
             // Eliminar si sale de pantalla
             if (GameState.ufo.x > DOM.canvas.width) {
                 GameState.ufo = null;
             }
+        }
+    },
+
+    shoot(currentTime) {
+        if (!GameState.ufo) return;
+        
+        // Verificar si es tiempo de disparar
+        if (currentTime - GameState.lastUfoShotTime < CONFIG.UFO.SHOOT_INTERVAL) return;
+
+        // Probabilidad de disparo
+        if (Math.random() < CONFIG.UFO.SHOOT_CHANCE) {
+            const projectile = EntityFactory.createProjectile(
+                GameState.ufo.x + GameState.ufo.width / 2 - 2,
+                GameState.ufo.y + GameState.ufo.height,
+                false
+            );
+
+            GameState.ufoProjectiles.push(projectile);
+            GameState.lastUfoShotTime = currentTime;
+            AudioManager.play('ufoShoot');
         }
     }
 };
@@ -595,6 +688,7 @@ const CollisionSystem = {
     checkAll() {
         this.checkPlayerProjectiles();
         this.checkEnemyProjectiles();
+        this.checkUFOProjectiles();
     },
 
     checkPlayerProjectiles() {
@@ -614,7 +708,6 @@ const CollisionSystem = {
                     EnemyController.updateSpeed();
                     AudioManager.play('explosion');
 
-                    // Verificar si todos murieron
                     if (GameState.invaders.every(inv => !inv.alive)) {
                         Game.nextLevel();
                     }
@@ -669,6 +762,29 @@ const CollisionSystem = {
         }
     },
 
+    checkUFOProjectiles() {
+        for (let i = GameState.ufoProjectiles.length - 1; i >= 0; i--) {
+            const projectile = GameState.ufoProjectiles[i];
+            if (!projectile) continue;
+
+            // Colisión con jugador
+            if (this.checkAABB(projectile, GameState.player)) {
+                GameState.ufoProjectiles.splice(i, 1);
+                this.playerHit();
+                continue;
+            }
+
+            // Colisión con escudos
+            for (const shield of GameState.shields) {
+                if (shield.health > 0 && this.checkAABB(projectile, shield)) {
+                    GameState.ufoProjectiles.splice(i, 1);
+                    shield.health -= 25;
+                    break;
+                }
+            }
+        }
+    },
+
     playerHit() {
         if (GameState.lives <= 0) return;
 
@@ -703,6 +819,15 @@ const ProjectileSystem = {
                 GameState.enemyProjectiles.splice(i, 1);
             }
         }
+
+        // Proyectiles del UFO
+        for (let i = GameState.ufoProjectiles.length - 1; i >= 0; i--) {
+            GameState.ufoProjectiles[i].y += GameState.ufoProjectiles[i].speed;
+
+            if (GameState.ufoProjectiles[i].y > DOM.canvas.height) {
+                GameState.ufoProjectiles.splice(i, 1);
+            }
+        }
     }
 };
 
@@ -714,7 +839,6 @@ const Renderer = {
     },
 
     drawPlayer() {
-        // Efecto de parpadeo al ser golpeado
         if (GameState.playerHitEffect && Math.floor(Date.now() / 100) % 2 === 0) {
             ctx.fillStyle = '#ff0000';
         } else {
@@ -724,7 +848,6 @@ const Renderer = {
         ctx.fillRect(GameState.player.x, GameState.player.y,
             GameState.player.width, GameState.player.height);
 
-        // Base del jugador
         ctx.beginPath();
         ctx.moveTo(GameState.player.x, GameState.player.y);
         ctx.lineTo(GameState.player.x + GameState.player.width, GameState.player.y);
@@ -740,7 +863,6 @@ const Renderer = {
             ctx.fillStyle = '#ff00ff';
             ctx.fillRect(invader.x, invader.y, invader.width, invader.height);
 
-            // Detalles
             ctx.fillStyle = '#00ffff';
             ctx.fillRect(invader.x + 5, invader.y + 5, invader.width - 10, 5);
             ctx.fillRect(invader.x + 5, invader.y + invader.height - 10, invader.width - 10, 5);
@@ -758,6 +880,12 @@ const Renderer = {
         // Proyectiles enemigos
         ctx.fillStyle = '#ff0000';
         for (const p of GameState.enemyProjectiles) {
+            ctx.fillRect(p.x, p.y, p.width, p.height);
+        }
+
+        // Proyectiles del UFO (color diferente para distinguirlos)
+        ctx.fillStyle = '#ffff00';
+        for (const p of GameState.ufoProjectiles) {
             ctx.fillRect(p.x, p.y, p.width, p.height);
         }
     },
@@ -794,7 +922,6 @@ const Renderer = {
             0, 0, Math.PI * 2);
         ctx.fill();
 
-        // Detalles
         ctx.fillStyle = '#ff6600';
         ctx.fillRect(GameState.ufo.x + 10, GameState.ufo.y + 5,
             GameState.ufo.width - 20, 5);
@@ -844,6 +971,9 @@ const Game = {
         UI.updateLives();
         UI.hideScreens();
 
+        // Iniciar música de fondo
+        AudioManager.startBackgroundMusic();
+
         this.start();
     },
 
@@ -856,6 +986,13 @@ const Game = {
     togglePause() {
         if (!GameState.active) return;
         GameState.paused = !GameState.paused;
+        
+        // Pausar o reanudar música
+        if (GameState.paused) {
+            AudioManager.stopBackgroundMusic();
+        } else {
+            AudioManager.startBackgroundMusic();
+        }
     },
 
     update() {
@@ -886,28 +1023,25 @@ const Game = {
     nextLevel() {
         GameState.level++;
 
-        // Mostrar pantalla de nivel completado
         UI.showLevelComplete();
 
-        // Pausar el juego temporalmente
         GameState.paused = true;
+        AudioManager.stopBackgroundMusic();
 
         setTimeout(() => {
-            // Limpiar proyectiles
             GameState.playerProjectiles = [];
             GameState.enemyProjectiles = [];
+            GameState.ufoProjectiles = [];
 
-            // Reparar escudos
             for (const shield of GameState.shields) {
                 shield.health = CONFIG.SHIELD.MAX_HEALTH;
             }
 
-            // Crear nueva oleada
             GameState.invaders = EntityFactory.createInvaders();
             GameState.enemySpeed = CONFIG.ENEMY.BASE_SPEED + GameState.level * 0.3;
 
-            // Reanudar el juego
             GameState.paused = false;
+            AudioManager.startBackgroundMusic();
         }, 2500);
     },
 
@@ -915,6 +1049,7 @@ const Game = {
         GameState.active = false;
         cancelAnimationFrame(GameState.animationId);
         cancelAnimationFrame(GameState.inputAnimationId);
+        AudioManager.stopBackgroundMusic();
         UI.showGameOver();
     }
 };
@@ -932,5 +1067,4 @@ DOM.restartBtn.addEventListener('click', () => {
     Game.init();
 });
 
-// Inicializar UI
 UI.updateLives();
