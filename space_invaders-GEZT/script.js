@@ -1,822 +1,757 @@
-// ===== MANEJO DE ACTIVACIÓN DE SONIDO =====
-let audioEnabled = false;
-let audioContext;
-let audioInitialized = false;
+// ===== CONFIGURACIÓN GLOBAL =====
+const CONFIG = {
+    PLAYER: {
+        WIDTH: 50,
+        HEIGHT: 20,
+        SPEED: 5
+    },
+    PROJECTILE: {
+        SPEED: 7,
+        MAX_PLAYER: 3
+    },
+    ENEMY: {
+        ROWS: 5,
+        COLS: 10,
+        WIDTH: 40,
+        HEIGHT: 30,
+        GAP: 10,
+        BASE_SPEED: 1,
+        SPEED_INCREMENT: 0.3, // Reducido de 1.5 a 0.3
+        SHOOT_INTERVAL: 800, // Reducido de 1000 a 800ms
+        GAME_OVER_MARGIN: 120 // Aumentado de 80 a 120
+    },
+    SHIELD: {
+        COUNT: 4,
+        WIDTH: 80,
+        HEIGHT: 40,
+        MAX_HEALTH: 100
+    },
+    UFO: {
+        WIDTH: 60,
+        HEIGHT: 30,
+        SPEED: 2,
+        APPEARANCE_INTERVAL: 3000, // Reducido de 5000 a 3000
+        APPEARANCE_CHANCE: 0.15 // Aumentado de 0.05 a 0.15
+    }
+};
 
-// Crear y mostrar el mensaje de activación de sonido
+// ===== MANEJO DE ACTIVACIÓN DE SONIDO =====
+const AudioManager = {
+    enabled: false,
+    context: null,
+    masterGain: null,
+
+    async init() {
+        if (this.enabled) return;
+        
+        try {
+            const AudioContext = window.AudioContext || window.webkitAudioContext;
+            this.context = new AudioContext();
+            
+            // Crear nodo de ganancia maestro
+            this.masterGain = this.context.createGain();
+            this.masterGain.gain.value = 0.7;
+            this.masterGain.connect(this.context.destination);
+            
+            // Oscilador de prueba silencioso
+            const oscillator = this.context.createOscillator();
+            const gainNode = this.context.createGain();
+            gainNode.gain.value = 0;
+            oscillator.connect(gainNode);
+            gainNode.connect(this.masterGain);
+            oscillator.start();
+            oscillator.stop(this.context.currentTime + 0.1);
+            
+            this.enabled = true;
+            return true;
+        } catch (e) {
+            console.error('Error al activar el audio:', e);
+            return false;
+        }
+    },
+
+    play(type) {
+        if (!this.enabled || !this.context || this.context.state === 'suspended') {
+            return;
+        }
+        
+        const sound = this.sounds[type];
+        if (!sound) return;
+        
+        try {
+            const now = this.context.currentTime;
+            const oscillator = this.context.createOscillator();
+            const gainNode = this.context.createGain();
+            
+            oscillator.type = sound.type;
+            oscillator.frequency.setValueAtTime(sound.frequency, now);
+            
+            if (sound.frequencyEnd !== undefined) {
+                oscillator.frequency.exponentialRampToValueAtTime(
+                    sound.frequencyEnd, 
+                    now + sound.duration
+                );
+            }
+            
+            // Envolvente ADSR
+            gainNode.gain.setValueAtTime(0, now);
+            gainNode.gain.linearRampToValueAtTime(sound.volume, now + sound.attack);
+            gainNode.gain.exponentialRampToValueAtTime(0.01, now + sound.attack + sound.decay);
+            
+            oscillator.connect(gainNode);
+            gainNode.connect(this.masterGain);
+            
+            oscillator.start(now);
+            oscillator.stop(now + sound.duration + 0.1);
+            
+            // Limpieza automática
+            oscillator.onended = () => {
+                try {
+                    oscillator.disconnect();
+                    gainNode.disconnect();
+                } catch (e) {
+                    // Ignorar errores de desconexión
+                }
+            };
+        } catch (e) {
+            console.error('Error al reproducir sonido:', e);
+        }
+    },
+
+    sounds: {
+        damage: {
+            type: 'sine',
+            frequency: 110,
+            frequencyEnd: 55,
+            duration: 0.5,
+            volume: 1.0,
+            attack: 0.1,
+            decay: 0.4
+        },
+        ufo: {
+            type: 'sine',
+            frequency: 220,
+            frequencyEnd: 110,
+            duration: 0.8,
+            volume: 0.6,
+            attack: 0.2,
+            decay: 0.6
+        },
+        shoot: {
+            type: 'square',
+            frequency: 392,
+            frequencyEnd: 196,
+            duration: 0.15,
+            volume: 0.3,
+            attack: 0,
+            decay: 0.15
+        },
+        enemyShoot: {
+            type: 'sine',
+            frequency: 330,
+            frequencyEnd: 165,
+            duration: 0.2,
+            volume: 0.3,
+            attack: 0,
+            decay: 0.2
+        },
+        explosion: {
+            type: 'sawtooth',
+            frequency: 250,
+            frequencyEnd: 60,
+            duration: 0.6,
+            volume: 0.9,
+            attack: 0.1,
+            decay: 0.5
+        },
+        powerup: {
+            type: 'triangle',
+            frequency: 523.25,
+            frequencyEnd: 1046.5,
+            duration: 0.6,
+            volume: 0.8,
+            attack: 0.1,
+            decay: 0.5
+        },
+        levelComplete: {
+            type: 'sine',
+            frequency: 523.25,
+            frequencyEnd: 1046.5,
+            duration: 0.8,
+            volume: 0.7,
+            attack: 0.2,
+            decay: 0.6
+        }
+    }
+};
+
+// Configurar prompt de sonido
 function setupSoundPrompt() {
     const prompt = document.createElement('div');
     prompt.id = 'soundPrompt';
-    prompt.innerHTML = '🔊 Haz clic <span>aquí</span> o en cualquier parte para activar el sonido';
+    prompt.innerHTML = '🔊 <span>Haz clic para activar el sonido</span>';
     document.body.appendChild(prompt);
     
-    // Función para activar el sonido
     const enableAudio = async () => {
-        if (audioEnabled) return;
-        
-        try {
-            // Crear el contexto de audio
-            const AudioContext = window.AudioContext || window.webkitAudioContext;
-            audioContext = new AudioContext();
-            
-            // Crear un nodo de ganancia maestro
-            const masterGain = audioContext.createGain();
-            masterGain.gain.value = 0.7; // Volumen general
-            masterGain.connect(audioContext.destination);
-            
-            // Crear un oscilador de prueba silencioso
-            const oscillator = audioContext.createOscillator();
-            const gainNode = audioContext.createGain();
-            gainNode.gain.value = 0;
-            oscillator.connect(gainNode);
-            gainNode.connect(masterGain);
-            oscillator.start();
-            oscillator.stop(audioContext.currentTime + 0.1);
-            
-            audioEnabled = true;
-            audioInitialized = true;
-            prompt.style.display = 'none';
-            
-            // Reproducir un sonido de confirmación
-            setTimeout(() => playSound('ufo'), 100);
-        } catch (e) {
-            console.warn('No se pudo activar el audio:', e);
+        const success = await AudioManager.init();
+        if (success) {
+            prompt.style.opacity = '0';
+            setTimeout(() => prompt.remove(), 300);
         }
     };
     
-    // Configurar eventos para activar el sonido
     prompt.addEventListener('click', enableAudio);
     document.addEventListener('click', enableAudio, { once: true });
     document.addEventListener('keydown', enableAudio, { once: true });
 }
 
-// Llamar a setupSoundPrompt cuando el DOM esté listo
 document.addEventListener('DOMContentLoaded', setupSoundPrompt);
 
-// ===== SISTEMA DE SONIDO =====
-// Configuración de sonidos
-const sounds = {
-    damage: {
-        type: 'sine',
-        frequency: 110,
-        frequencyEnd: 55,
-        duration: 0.3,
-        volume: 0.5,
-        attack: 0,
-        decay: 0.3
-    },
-    ufo: {
-        type: 'sawtooth',
-        frequency: 880,
-        frequencyEnd: 220,
-        duration: 0.5,
-        volume: 0.7,
-        attack: 0,
-        decay: 0.5
-    },
-    shoot: {
-        type: 'square',
-        frequency: 392,
-        frequencyEnd: 196,
-        duration: 0.15,
-        volume: 0.3,
-        attack: 0,
-        decay: 0.15
-    },
-    enemyShoot: {
-        type: 'sine',
-        frequency: 330,
-        frequencyEnd: 165,
-        duration: 0.2,
-        volume: 0.4,
-        attack: 0,
-        decay: 0.2
-    },
-    explosion: {
-        type: 'sawtooth',
-        frequency: 200,
-        frequencyEnd: 50,
-        duration: 0.4,
-        volume: 0.8,
-        attack: 0.05,
-        decay: 0.35
-    },
-    powerup: {
-        type: 'sine',
-        frequency: 523.25,
-        frequencyEnd: 1046.5,
-        duration: 0.3,
-        volume: 0.6,
-        attack: 0.05,
-        decay: 0.25
-    }
-};
-
-// Función para reproducir sonidos
-function playSound(type) {
-    if (!audioEnabled || !audioContext || audioContext.state === 'suspended') {
-        return;
-    }
-    
-    const sound = sounds[type];
-    if (!sound) {
-        console.warn(`Sonido no encontrado: ${type}`);
-        return;
-    }
-    
-    try {
-        const now = audioContext.currentTime;
-        const oscillator = audioContext.createOscillator();
-        const gainNode = audioContext.createGain();
-        
-        // Configuración del oscilador
-        oscillator.type = sound.type;
-        oscillator.frequency.setValueAtTime(sound.frequency, now);
-        
-        // Aplicar cambio de frecuencia si está definido
-        if (sound.frequencyEnd !== undefined) {
-            oscillator.frequency.exponentialRampToValueAtTime(
-                sound.frequencyEnd, 
-                now + sound.duration
-            );
-        }
-        
-        // Configuración de la envolvente de volumen
-        gainNode.gain.setValueAtTime(0, now);
-        gainNode.gain.linearRampToValueAtTime(
-            sound.volume, 
-            now + sound.attack
-        );
-        gainNode.gain.exponentialRampToValueAtTime(
-            0.01, 
-            now + sound.attack + sound.decay
-        );
-        
-        // Conectar nodos
-        oscillator.connect(gainNode);
-        gainNode.connect(audioContext.destination);
-        
-        // Reproducir
-        oscillator.start(now);
-        oscillator.stop(now + sound.duration + 0.1);
-        
-        // Limpieza
-        oscillator.addEventListener('ended', () => {
-            try {
-                oscillator.disconnect();
-                gainNode.disconnect();
-            } catch (e) {
-                console.warn('Error al limpiar nodos de audio:', e);
-            }
-        });
-    } catch (e) {
-        console.warn('Error al reproducir sonido:', e);
-    }
-}
-
-// ===== VALIDACIÓN DEL DOM =====
-/**
- * Obtiene un elemento del DOM y valida su existencia
- * @param {string} id - ID del elemento
- * @returns {HTMLElement} El elemento encontrado
- * @throws {Error} Si el elemento no existe
- */
+// ===== UTILIDADES DOM =====
 const getElement = (id) => {
     const el = document.getElementById(id);
     if (!el) throw new Error(`Elemento con id '${id}' no encontrado`);
     return el;
 };
 
-// ===== DECLARACIÓN DE VARIABLES GLOBALES =====
-const canvas = getElement('gameCanvas');
-const ctx = canvas.getContext('2d');
-const startScreen = getElement('startScreen');
-const gameOverScreen = getElement('gameOverScreen');
-const startBtn = getElement('startBtn');
-const restartBtn = getElement('restartBtn');
-const scoreDisplay = getElement('score');
-const livesDisplay = getElement('lives');
-const finalScoreDisplay = getElement('finalScore');
-
-// Variables del juego
-let gameActive = false;
-let score = 0;
-let lives = 3;
-let animationId;
-let inputAnimationId;
-let invaders = [];
-let playerProjectiles = [];
-let enemyProjectiles = [];
-let shields = [];
-let ufo = null;
-let lastUfoTime = 0;
-let lastEnemyShotTime = 0;
-let enemyDirection = 1; // 1 = derecha, -1 = izquierda
-let enemyDropDown = false;
-let enemySpeed = 1;
-let level = 1;
-let aliveInvadersCount = 0; // MEJORA: Cachear contador
-
-// ===== CONFIGURACIONES DEL JUEGO =====
-const PLAYER_WIDTH = 50;
-const PLAYER_HEIGHT = 20;
-const PLAYER_SPEED = 5;
-const PROJECTILE_SPEED = 7;
-const ENEMY_ROWS = 5;
-const ENEMY_COLS = 10;
-const ENEMY_WIDTH = 40;
-const ENEMY_HEIGHT = 30;
-const ENEMY_GAP = 10;
-const SHIELD_WIDTH = 80;
-const SHIELD_HEIGHT = 40;
-const UFO_WIDTH = 60;
-const UFO_HEIGHT = 30;
-const UFO_SPEED = 2;
-const MAX_PLAYER_PROJECTILES = 3; // MEJORA: Permitir múltiples proyectiles
-const UFO_APPEARANCE_INTERVAL = 5000; // MEJORA: Aumentado a 5 segundos
-const UFO_APPEARANCE_CHANCE = 0.05; // MEJORA: Aumentado a 0.05 (5%)
-
-// Posición inicial del jugador
-let player = {
-    x: canvas.width / 2 - PLAYER_WIDTH / 2,
-    y: canvas.height - 40,
-    width: PLAYER_WIDTH,
-    height: PLAYER_HEIGHT,
-    speed: PLAYER_SPEED
+// ===== ELEMENTOS DEL DOM =====
+const DOM = {
+    canvas: getElement('gameCanvas'),
+    startScreen: getElement('startScreen'),
+    gameOverScreen: getElement('gameOverScreen'),
+    startBtn: getElement('startBtn'),
+    restartBtn: getElement('restartBtn'),
+    scoreDisplay: getElement('score'),
+    livesDisplay: getElement('lives'),
+    finalScoreDisplay: getElement('finalScore')
 };
 
-// ===== INICIALIZACIÓN DEL JUEGO =====
-/**
- * Inicializa el juego con todas las variables reiniciadas
- */
-function initGame() {
-    // Reiniciar variables del juego
-    gameActive = true;
-    score = 0;
-    lives = 3;
-    level = 1;
-    enemyDirection = 1;
-    enemySpeed = 1;
-    updateScore();
-    updateLives();
+const ctx = DOM.canvas.getContext('2d');
 
-    // Limpiar arrays
-    invaders = [];
-    playerProjectiles = [];
-    enemyProjectiles = [];
-    shields = [];
-    ufo = null;
+// ===== ESTADO DEL JUEGO =====
+const GameState = {
+    active: false,
+    paused: false,
+    score: 0,
+    lives: 3,
+    level: 1,
+    animationId: null,
+    inputAnimationId: null,
+    
+    // Entidades
+    player: {
+        x: DOM.canvas.width / 2 - CONFIG.PLAYER.WIDTH / 2,
+        y: DOM.canvas.height - 40,
+        width: CONFIG.PLAYER.WIDTH,
+        height: CONFIG.PLAYER.HEIGHT,
+        speed: CONFIG.PLAYER.SPEED
+    },
+    invaders: [],
+    playerProjectiles: [],
+    enemyProjectiles: [],
+    shields: [],
+    ufo: null,
+    
+    // Control de enemigos
+    enemyDirection: 1,
+    enemySpeed: CONFIG.ENEMY.BASE_SPEED,
+    lastEnemyShotTime: 0,
+    lastUfoTime: 0,
+    
+    // Efectos visuales
+    playerHitEffect: false,
+    
+    reset() {
+        this.active = true;
+        this.paused = false;
+        this.score = 0;
+        this.lives = 3;
+        this.level = 1;
+        this.enemyDirection = 1;
+        this.enemySpeed = CONFIG.ENEMY.BASE_SPEED;
+        this.lastEnemyShotTime = 0;
+        this.lastUfoTime = 0;
+        this.playerHitEffect = false;
+        
+        // Resetear posición del jugador
+        this.player.x = DOM.canvas.width / 2 - CONFIG.PLAYER.WIDTH / 2;
+        this.player.y = DOM.canvas.height - 40;
+        
+        // Limpiar arrays
+        this.invaders = [];
+        this.playerProjectiles = [];
+        this.enemyProjectiles = [];
+        this.shields = [];
+        this.ufo = null;
+    }
+};
 
-    // Crear invasores
-    createInvaders();
+// ===== CREACIÓN DE ENTIDADES =====
+const EntityFactory = {
+    createInvaders() {
+        const invaders = [];
+        for (let row = 0; row < CONFIG.ENEMY.ROWS; row++) {
+            for (let col = 0; col < CONFIG.ENEMY.COLS; col++) {
+                invaders.push({
+                    x: col * (CONFIG.ENEMY.WIDTH + CONFIG.ENEMY.GAP) + 50,
+                    y: row * (CONFIG.ENEMY.HEIGHT + CONFIG.ENEMY.GAP) + 50,
+                    width: CONFIG.ENEMY.WIDTH,
+                    height: CONFIG.ENEMY.HEIGHT,
+                    alive: true,
+                    points: (CONFIG.ENEMY.ROWS - row) * 10
+                });
+            }
+        }
+        return invaders;
+    },
 
-    // Crear escudos
-    createShields();
-
-    // Ocultar pantallas
-    startScreen.style.display = 'none';
-    gameOverScreen.style.display = 'none';
-
-    // Iniciar bucle del juego
-    gameLoop();
-}
-
-// ===== CREACIÓN DE ELEMENTOS DEL JUEGO =====
-
-/**
- * Crea invasores en formación
- */
-function createInvaders() {
-    for (let row = 0; row < ENEMY_ROWS; row++) {
-        for (let col = 0; col < ENEMY_COLS; col++) {
-            invaders.push({
-                x: col * (ENEMY_WIDTH + ENEMY_GAP) + 50,
-                y: row * (ENEMY_HEIGHT + ENEMY_GAP) + 50,
-                width: ENEMY_WIDTH,
-                height: ENEMY_HEIGHT,
-                alive: true,
-                points: (ENEMY_ROWS - row) * 10 // Puntos según la fila
+    createShields() {
+        const shields = [];
+        const spacing = DOM.canvas.width / (CONFIG.SHIELD.COUNT + 1);
+        
+        for (let i = 1; i <= CONFIG.SHIELD.COUNT; i++) {
+            shields.push({
+                x: spacing * i - CONFIG.SHIELD.WIDTH / 2,
+                y: DOM.canvas.height - 150,
+                width: CONFIG.SHIELD.WIDTH,
+                height: CONFIG.SHIELD.HEIGHT,
+                health: CONFIG.SHIELD.MAX_HEALTH
             });
         }
+        return shields;
+    },
+
+    createUFO() {
+        return {
+            x: -CONFIG.UFO.WIDTH,
+            y: 30,
+            width: CONFIG.UFO.WIDTH,
+            height: CONFIG.UFO.HEIGHT,
+            speed: CONFIG.UFO.SPEED,
+            points: [50, 100, 150][Math.floor(Math.random() * 3)]
+        };
+    },
+
+    createProjectile(x, y, isPlayer) {
+        return {
+            x: x,
+            y: y,
+            width: 4,
+            height: 10,
+            speed: isPlayer ? -CONFIG.PROJECTILE.SPEED : CONFIG.PROJECTILE.SPEED
+        };
     }
-}
+};
 
-/**
- * Crea escudos defensivos
- */
-function createShields() {
-    const shieldCount = 4;
-    const shieldSpacing = canvas.width / (shieldCount + 1);
+// ===== ACTUALIZACIÓN DE UI =====
+const UI = {
+    updateScore() {
+        DOM.scoreDisplay.textContent = GameState.score;
+    },
 
-    for (let i = 1; i <= shieldCount; i++) {
-        shields.push({
-            x: shieldSpacing * i - SHIELD_WIDTH / 2,
-            y: canvas.height - 150,
-            width: SHIELD_WIDTH,
-            height: SHIELD_HEIGHT,
-            health: 100
-        });
-    }
-}
-
-/**
- * Crea una nave misteriosa (UFO)
- */
-function createUFO() {
-    ufo = {
-        x: -UFO_WIDTH,
-        y: 30,
-        width: UFO_WIDTH,
-        height: UFO_HEIGHT,
-        speed: UFO_SPEED,
-        points: Math.floor(Math.random() * 3 + 1) * 50 // 50, 100 o 150 puntos
-    };
-}
-
-// ===== ACTUALIZACIÓN DE LA INTERFAZ =====
-
-/**
- * Actualiza la puntuación en pantalla
- */
-function updateScore() {
-    scoreDisplay.textContent = score;
-}
-
-/**
- * Actualiza las vidas mostradas en pantalla
- */
-function updateLives() {
-    // Guardar el estado de animación de la última vida si existe
-    const lastLife = livesDisplay.querySelector('.life:last-child');
-    const wasLost = lastLife && lastLife.classList.contains('lost');
-    
-    // Reconstruir el contenedor de vidas
-    livesDisplay.innerHTML = '';
-    
-    // Crear los elementos de vida
-    for (let i = 0; i < lives; i++) {
-        const lifeElement = document.createElement('div');
-        lifeElement.className = 'life';
+    updateLives() {
+        // Solo actualizar si el número de vidas ha cambiado
+        const currentLivesCount = DOM.livesDisplay.children.length;
+        if (currentLivesCount === GameState.lives) return;
         
-        // Si es la última vida y estaba en estado de pérdida, mantener la animación
-        if (i === lives - 1 && wasLost) {
-            // Usar setTimeout para permitir que el navegador aplique primero la clase 'life'
-            setTimeout(() => {
-                lifeElement.classList.add('lost');
-            }, 10);
+        DOM.livesDisplay.innerHTML = '';
+        
+        for (let i = 0; i < GameState.lives; i++) {
+            const lifeElement = document.createElement('div');
+            lifeElement.className = 'life';
+            DOM.livesDisplay.appendChild(lifeElement);
         }
+    },
+
+    animateLifeLost() {
+        const lifeElements = DOM.livesDisplay.querySelectorAll('.life');
+        if (lifeElements.length > 0) {
+            const lastLife = lifeElements[lifeElements.length - 1];
+            lastLife.classList.add('lost');
+            setTimeout(() => lastLife.remove(), 1000);
+        }
+    },
+
+    showPlayerHit() {
+        DOM.canvas.classList.add('screen-shake');
+        GameState.playerHitEffect = true;
         
-        livesDisplay.appendChild(lifeElement);
+        setTimeout(() => {
+            DOM.canvas.classList.remove('screen-shake');
+            GameState.playerHitEffect = false;
+        }, 500);
+    },
+
+    showLevelComplete() {
+        const overlay = document.createElement('div');
+        overlay.className = 'level-complete-overlay';
+        overlay.innerHTML = `
+            <div class="level-complete-content">
+                <h2>¡NIVEL ${GameState.level - 1} COMPLETADO!</h2>
+                <p>Preparando nivel ${GameState.level}...</p>
+            </div>
+        `;
+        document.body.appendChild(overlay);
+        
+        AudioManager.play('levelComplete');
+        
+        setTimeout(() => {
+            overlay.style.opacity = '0';
+            setTimeout(() => overlay.remove(), 300);
+        }, 2000);
+    },
+
+    showGameOver() {
+        DOM.finalScoreDisplay.textContent = `Tu puntuación: ${GameState.score}`;
+        DOM.gameOverScreen.style.display = 'flex';
+    },
+
+    hideScreens() {
+        DOM.startScreen.style.display = 'none';
+        DOM.gameOverScreen.style.display = 'none';
     }
-}
-
-// ===== UTILIDADES =====
-
-/**
- * Cuenta y cachea los invasores que están vivos
- * MEJORA: Función separada para evitar calcular múltiples veces
- * @returns {number} Cantidad de invasores vivos
- */
-function countAliveInvaders() {
-    return invaders.filter(inv => inv.alive).length;
-}
+};
 
 // ===== CONTROL DEL JUGADOR =====
+const PlayerController = {
+    keys: {},
 
-/**
- * Mueve el jugador en una dirección con límites
- * @param {number} direction - 1 para derecha, -1 para izquierda
- */
-function movePlayer(direction) {
-    if (!gameActive) return;
-
-    player.x += player.speed * direction;
-
-    // Limitar movimiento dentro del canvas
-    if (player.x < 0) player.x = 0;
-    if (player.x + player.width > canvas.width) {
-        player.x = canvas.width - player.width;
-    }
-}
-
-/**
- * Dispara un proyectil del jugador
- * MEJORA: Permite múltiples proyectiles (hasta MAX_PLAYER_PROJECTILES)
- */
-function playerShoot() {
-    if (!gameActive || playerProjectiles.length >= MAX_PLAYER_PROJECTILES) return;
-    
-    playerProjectiles.push({
-        x: player.x + player.width / 2 - 2,
-        y: player.y,
-        width: 4,
-        height: 10,
-        speed: -PROJECTILE_SPEED // Hacia arriba
-    });
-    
-    // Sonido de disparo del jugador
-    playSound('shoot');
-}
-
-// ===== MOVIMIENTO Y COMPORTAMIENTO DE ENEMIGOS =====
-
-/**
- * Mueve los invasores y verifica si han llegado al fondo
- */
-function moveInvaders() {
-    let moveDown = false;
-    const margin = 20; // Margen para evitar que toquen los bordes
-
-    // Verificar si algún invasor ha llegado al borde
-    for (const invader of invaders) {
-        if (!invader.alive) continue;
-
-        // Añadimos márgenes para que no toquen exactamente los bordes
-        if ((invader.x + invader.width >= canvas.width - margin && enemyDirection === 1) ||
-            (invader.x <= margin && enemyDirection === -1)) {
-            moveDown = true;
-            break;
-        }
-    }
-
-    // Cambiar dirección antes de mover
-    if (moveDown) {
-        enemyDirection *= -1;
-    }
-
-    // Mover invasores
-    let lowestInvaderY = 0;
-    for (const invader of invaders) {
-        if (!invader.alive) continue;
-
-        if (moveDown) {
-            invader.y += 15; // Movimiento fijo hacia abajo
-        }
-        invader.x += enemySpeed * enemyDirection;
-
-        // Registrar la posición Y más baja
-        if (invader.y + invader.height > lowestInvaderY) {
-            lowestInvaderY = invader.y + invader.height;
-        }
-    }
-
-    // Verificar game over solo una vez por frame, usando la posición más baja
-    if (lowestInvaderY >= player.y - 80) { // Aumentado el margen de seguridad
-        gameOver();
-        return;
-    }
-}
-
-/**
- * Enemigos disparan aleatoriamente
- */
-function enemyShoot() {
-    if (!gameActive || invaders.length === 0) return;
-
-    const currentTime = Date.now();
-    if (currentTime - lastEnemyShotTime < 1000) return; // Disparar cada segundo
-
-    // Seleccionar un invasor aleatorio vivo
-    const aliveInvaders = invaders.filter(inv => inv.alive);
-    if (aliveInvaders.length === 0) return;
-
-    const shooter = aliveInvaders[Math.floor(Math.random() * aliveInvaders.length)];
-
-    enemyProjectiles.push({
-        x: shooter.x + shooter.width / 2 - 2,
-        y: shooter.y + shooter.height,
-        width: 4,
-        height: 10,
-        speed: PROJECTILE_SPEED // Hacia abajo
-    });
-
-    lastEnemyShotTime = currentTime;
-    
-    // Sonido de disparo enemigo - Aseguramos que se llame
-    setTimeout(() => playSound('enemyShoot'), 0);
-}
-
-// ===== DETECCIÓN DE COLISIONES =====
-
-/**
- * Verifica colisión AABB (Axis-Aligned Bounding Box) entre dos rectángulos
- * @param {Object} rect1 - Primer rectángulo
- * @param {Object} rect2 - Segundo rectángulo
- * @returns {boolean} true si hay colisión
- */
-function checkCollision(rect1, rect2) {
-    return rect1.x < rect2.x + rect2.width &&
-        rect1.x + rect1.width > rect2.x &&
-        rect1.y < rect2.y + rect2.height &&
-        rect1.y + rect1.height > rect2.y;
-}
-
-/**
- * Verifica todas las colisiones de proyectiles
- */
-function checkProjectileCollisions() {
-    // Proyectiles del jugador vs invasores
-    for (let i = playerProjectiles.length - 1; i >= 0; i--) {
-        const projectile = playerProjectiles[i];
-        
-        // Verificar si el proyectil es indefinido
-        if (!projectile) {
-            console.warn('Proyectil indefinido encontrado en el índice', i, 'de playerProjectiles');
-            playerProjectiles.splice(i, 1);
-            continue;
-        }
-
-        // Colisión con invasores
-        for (let j = invaders.length - 1; j >= 0; j--) {
-            const invader = invaders[j];
+    init() {
+        window.addEventListener('keydown', (e) => {
+            this.keys[e.key] = true;
             
-            // Verificar si el invasor es indefinido
-            if (!invader) {
-                console.warn('Invasor indefinido encontrado en el índice', j, 'de invaders');
+            if (e.key === ' ' && GameState.active && !GameState.paused) {
+                this.shoot();
+                e.preventDefault();
+            }
+            
+            // Pausa con P o ESC
+            if ((e.key === 'p' || e.key === 'P' || e.key === 'Escape') && GameState.active) {
+                Game.togglePause();
+                e.preventDefault();
+            }
+        });
+        
+        window.addEventListener('keyup', (e) => {
+            this.keys[e.key] = false;
+        });
+    },
+
+    move(direction) {
+        if (!GameState.active || GameState.paused) return;
+        
+        GameState.player.x += GameState.player.speed * direction;
+        
+        // Limitar movimiento
+        if (GameState.player.x < 0) GameState.player.x = 0;
+        if (GameState.player.x + GameState.player.width > DOM.canvas.width) {
+            GameState.player.x = DOM.canvas.width - GameState.player.width;
+        }
+    },
+
+    shoot() {
+        if (GameState.playerProjectiles.length >= CONFIG.PROJECTILE.MAX_PLAYER) return;
+        
+        const projectile = EntityFactory.createProjectile(
+            GameState.player.x + GameState.player.width / 2 - 2,
+            GameState.player.y,
+            true
+        );
+        
+        GameState.playerProjectiles.push(projectile);
+        AudioManager.play('shoot');
+    },
+
+    handleMovement() {
+        if (this.keys['ArrowLeft'] || this.keys['a'] || this.keys['A']) {
+            this.move(-1);
+        }
+        if (this.keys['ArrowRight'] || this.keys['d'] || this.keys['D']) {
+            this.move(1);
+        }
+    }
+};
+
+// ===== LÓGICA DE ENEMIGOS =====
+const EnemyController = {
+    move() {
+        let moveDown = false;
+        const margin = 20;
+        
+        // Verificar si algún invasor llegó al borde
+        for (const invader of GameState.invaders) {
+            if (!invader.alive) continue;
+            
+            if ((invader.x + invader.width >= DOM.canvas.width - margin && GameState.enemyDirection === 1) ||
+                (invader.x <= margin && GameState.enemyDirection === -1)) {
+                moveDown = true;
+                break;
+            }
+        }
+        
+        // Cambiar dirección si es necesario
+        if (moveDown) {
+            GameState.enemyDirection *= -1;
+        }
+        
+        // Mover invasores y verificar game over
+        let lowestY = 0;
+        for (const invader of GameState.invaders) {
+            if (!invader.alive) continue;
+            
+            if (moveDown) invader.y += 15;
+            invader.x += GameState.enemySpeed * GameState.enemyDirection;
+            
+            if (invader.y + invader.height > lowestY) {
+                lowestY = invader.y + invader.height;
+            }
+        }
+        
+        // Verificar game over
+        if (lowestY >= GameState.player.y - CONFIG.ENEMY.GAME_OVER_MARGIN) {
+            Game.over();
+        }
+    },
+
+    shoot() {
+        const currentTime = Date.now();
+        if (currentTime - GameState.lastEnemyShotTime < CONFIG.ENEMY.SHOOT_INTERVAL) return;
+        
+        const aliveInvaders = GameState.invaders.filter(inv => inv.alive);
+        if (aliveInvaders.length === 0) return;
+        
+        const shooter = aliveInvaders[Math.floor(Math.random() * aliveInvaders.length)];
+        const projectile = EntityFactory.createProjectile(
+            shooter.x + shooter.width / 2 - 2,
+            shooter.y + shooter.height,
+            false
+        );
+        
+        GameState.enemyProjectiles.push(projectile);
+        GameState.lastEnemyShotTime = currentTime;
+        AudioManager.play('enemyShoot');
+    },
+
+    updateSpeed() {
+        const aliveCount = GameState.invaders.filter(inv => inv.alive).length;
+        const totalCount = CONFIG.ENEMY.ROWS * CONFIG.ENEMY.COLS;
+        const ratio = 1 - (aliveCount / totalCount);
+        GameState.enemySpeed = CONFIG.ENEMY.BASE_SPEED + (ratio * CONFIG.ENEMY.SPEED_INCREMENT);
+    }
+};
+
+// ===== LÓGICA DE UFO =====
+const UFOController = {
+    update() {
+        const currentTime = Date.now();
+        
+        // Crear UFO si es tiempo
+        if (!GameState.ufo && 
+            currentTime - GameState.lastUfoTime > CONFIG.UFO.APPEARANCE_INTERVAL &&
+            Math.random() < CONFIG.UFO.APPEARANCE_CHANCE) {
+            GameState.ufo = EntityFactory.createUFO();
+            GameState.lastUfoTime = currentTime;
+            AudioManager.play('ufo');
+        }
+        
+        // Mover UFO
+        if (GameState.ufo) {
+            GameState.ufo.x += GameState.ufo.speed;
+            
+            // Eliminar si sale de pantalla
+            if (GameState.ufo.x > DOM.canvas.width) {
+                GameState.ufo = null;
+            }
+        }
+    }
+};
+
+// ===== SISTEMA DE COLISIONES =====
+const CollisionSystem = {
+    checkAABB(rect1, rect2) {
+        return rect1.x < rect2.x + rect2.width &&
+               rect1.x + rect1.width > rect2.x &&
+               rect1.y < rect2.y + rect2.height &&
+               rect1.y + rect1.height > rect2.y;
+    },
+
+    checkAll() {
+        this.checkPlayerProjectiles();
+        this.checkEnemyProjectiles();
+    },
+
+    checkPlayerProjectiles() {
+        for (let i = GameState.playerProjectiles.length - 1; i >= 0; i--) {
+            const projectile = GameState.playerProjectiles[i];
+            if (!projectile) continue;
+            
+            let hit = false;
+            
+            // Colisión con invasores
+            for (const invader of GameState.invaders) {
+                if (invader.alive && this.checkAABB(projectile, invader)) {
+                    GameState.playerProjectiles.splice(i, 1);
+                    invader.alive = false;
+                    GameState.score += invader.points;
+                    UI.updateScore();
+                    EnemyController.updateSpeed();
+                    AudioManager.play('explosion');
+                    
+                    // Verificar si todos murieron
+                    if (GameState.invaders.every(inv => !inv.alive)) {
+                        Game.nextLevel();
+                    }
+                    hit = true;
+                    break;
+                }
+            }
+            
+            if (hit) continue;
+            
+            // Colisión con UFO
+            if (GameState.ufo && this.checkAABB(projectile, GameState.ufo)) {
+                GameState.playerProjectiles.splice(i, 1);
+                GameState.score += GameState.ufo.points;
+                UI.updateScore();
+                GameState.ufo = null;
+                AudioManager.play('powerup');
                 continue;
             }
             
-            if (invader.alive && checkCollision(projectile, invader)) {
-                // Eliminar proyectil e invasor
-                playerProjectiles.splice(i, 1);
-                invader.alive = false;
-
-                // Aumentar puntuación
-                score += invader.points;
-                updateScore();
-
-                // MEJORA: Recalcular contador en lugar de decrementarlo (más seguro)
-                aliveInvadersCount = countAliveInvaders();
-
-                // Aumentar velocidad de invasores según cuántos quedan, pero con un límite más bajo
-                enemySpeed = 1 + (1 - aliveInvadersCount / (ENEMY_ROWS * ENEMY_COLS)) * 1.5;
-
-                // Verificar si todos los invasores fueron eliminados
-                if (aliveInvadersCount === 0) {
-                    nextLevel();
+            // Colisión con escudos
+            for (const shield of GameState.shields) {
+                if (shield.health > 0 && this.checkAABB(projectile, shield)) {
+                    GameState.playerProjectiles.splice(i, 1);
+                    shield.health -= 25;
+                    break;
                 }
-
-                // Sonido de explosión - Aseguramos que se llame
-                setTimeout(() => playSound('explosion'), 0);
-                break;
             }
         }
+    },
 
-        // Colisión con OVNI
-        if (ufo && projectile && checkCollision(projectile, ufo)) {
-            playerProjectiles.splice(i, 1);
-            score += ufo.points;
-            updateScore();
-            ufo = null;
-            break; // Salir del bucle después de destruir el OVNI
-        }
-
-        // Colisión con escudos
-        for (const shield of shields) {
-            if (shield && shield.health > 0 && checkCollision(projectile, shield)) {
-                playerProjectiles.splice(i, 1);
-                shield.health -= 25;
-                break;
+    checkEnemyProjectiles() {
+        for (let i = GameState.enemyProjectiles.length - 1; i >= 0; i--) {
+            const projectile = GameState.enemyProjectiles[i];
+            if (!projectile) continue;
+            
+            // Colisión con jugador
+            if (this.checkAABB(projectile, GameState.player)) {
+                GameState.enemyProjectiles.splice(i, 1);
+                this.playerHit();
+                continue;
+            }
+            
+            // Colisión con escudos
+            for (const shield of GameState.shields) {
+                if (shield.health > 0 && this.checkAABB(projectile, shield)) {
+                    GameState.enemyProjectiles.splice(i, 1);
+                    shield.health -= 25;
+                    break;
+                }
             }
         }
-    }
+    },
 
-    // Proyectiles enemigos vs jugador
-    for (let i = enemyProjectiles.length - 1; i >= 0; i--) {
-        const projectile = enemyProjectiles[i];
+    playerHit() {
+        if (GameState.lives <= 0) return;
         
-        // Verificar si el proyectil es indefinido
-        if (!projectile) {
-            console.warn('Proyectil enemigo indefinido encontrado en el índice', i, 'de enemyProjectiles');
-            enemyProjectiles.splice(i, 1);
-            continue;
+        GameState.lives--;
+        UI.animateLifeLost();
+        UI.showPlayerHit();
+        AudioManager.play('damage');
+        
+        if (GameState.lives <= 0) {
+            setTimeout(() => Game.over(), 1000);
         }
+    }
+};
 
-        // Colisión con jugador
-        if (player && checkCollision(projectile, player)) {
-            enemyProjectiles.splice(i, 1);
-            loseLife();
-            break;
+// ===== ACTUALIZACIÓN DE PROYECTILES =====
+const ProjectileSystem = {
+    update() {
+        // Proyectiles del jugador
+        for (let i = GameState.playerProjectiles.length - 1; i >= 0; i--) {
+            GameState.playerProjectiles[i].y += GameState.playerProjectiles[i].speed;
+            
+            if (GameState.playerProjectiles[i].y < 0) {
+                GameState.playerProjectiles.splice(i, 1);
+            }
         }
-
-        // Colisión con escudos
-        for (const shield of shields) {
-            if (shield && shield.health > 0 && checkCollision(projectile, shield)) {
-                enemyProjectiles.splice(i, 1);
-                shield.health -= 25;
-                break;
+        
+        // Proyectiles enemigos
+        for (let i = GameState.enemyProjectiles.length - 1; i >= 0; i--) {
+            GameState.enemyProjectiles[i].y += GameState.enemyProjectiles[i].speed;
+            
+            if (GameState.enemyProjectiles[i].y > DOM.canvas.height) {
+                GameState.enemyProjectiles.splice(i, 1);
             }
         }
     }
-}
+};
 
-// ===== GESTIÓN DE VIDAS Y NIVELES =====
+// ===== SISTEMA DE RENDERIZADO =====
+const Renderer = {
+    clear() {
+        ctx.fillStyle = '#000000';
+        ctx.fillRect(0, 0, DOM.canvas.width, DOM.canvas.height);
+    },
 
-/**
- * Pierde una vida y verifica si es game over
- */
-function loseLife() {
-    // Si ya no hay vidas, no hacer nada
-    if (lives <= 0) return;
-    
-    // Guardar la vida que se va a perder
-    const currentLives = lives;
-    lives--;
-    
-    // Agregar clase de animación a la vida que se perdió
-    updateLives();
-    
-    // Si hay vidas restantes, agregar clase de animación a la vida que se acaba de perder
-    if (lives > 0) {
-        const lifeElements = document.querySelectorAll('.life');
-        if (lifeElements.length > 0) {
-            const lostLife = lifeElements[Math.min(currentLives - 1, lifeElements.length - 1)];
-            lostLife.classList.add('lost');
+    drawPlayer() {
+        // Efecto de parpadeo al ser golpeado
+        if (GameState.playerHitEffect && Math.floor(Date.now() / 100) % 2 === 0) {
+            ctx.fillStyle = '#ff0000';
+        } else {
+            ctx.fillStyle = '#00ff00';
         }
-    }
-    
-    // Reproducir sonido de daño
-    playSound('damage');
-    
-    // Agregar efecto de sacudida a la pantalla
-    canvas.classList.add('screen-shake');
-    setTimeout(() => {
-        canvas.classList.remove('screen-shake');
-    }, 500);
-    
-    if (lives <= 0) {
-        // Pequeño retraso para que se vea la animación antes del game over
-        setTimeout(() => gameOver(), 1000);
-    }
-}
+        
+        ctx.fillRect(GameState.player.x, GameState.player.y, 
+                     GameState.player.width, GameState.player.height);
+        
+        // Base del jugador
+        ctx.beginPath();
+        ctx.moveTo(GameState.player.x, GameState.player.y);
+        ctx.lineTo(GameState.player.x + GameState.player.width, GameState.player.y);
+        ctx.lineTo(GameState.player.x + GameState.player.width / 2, GameState.player.y - 15);
+        ctx.closePath();
+        ctx.fill();
+    },
 
-/**
- * Pasa al siguiente nivel
- */
-function nextLevel() {
-    level++;
-
-    // Limpiar proyectiles
-    playerProjectiles = [];
-    enemyProjectiles = [];
-
-    // Reparar escudos
-    for (const shield of shields) {
-        shield.health = 100;
-    }
-
-    // Crear nueva oleada de invasores más cerca y más rápidos
-    createInvaders();
-    aliveInvadersCount = invaders.length; // MEJORA: Actualizar contador
-    enemySpeed = 1 + level * 0.5;
-}
-
-// ===== FINALIZACIÓN DEL JUEGO =====
-
-/**
- * Finaliza el juego y muestra pantalla de game over
- * MEJORA: Cancela ambos bucles de animación
- */
-function gameOver() {
-    gameActive = false;
-    cancelAnimationFrame(animationId);
-    cancelAnimationFrame(inputAnimationId); // MEJORA: Cancelar input loop
-
-    finalScoreDisplay.textContent = `Tu puntuación: ${score}`;
-    gameOverScreen.style.display = 'flex';
-}
-
-// ===== BUCLE PRINCIPAL DEL JUEGO =====
-
-/**
- * Actualiza el estado del juego
- */
-function update() {
-    if (!gameActive) return;
-
-    // Mover invasores
-    moveInvaders();
-
-    // Disparo enemigo
-    enemyShoot();
-
-    // Mover proyectiles
-    moveProjectiles();
-
-    // Mover OVNI
-    moveUFO();
-
-    // Verificar colisiones
-    checkProjectileCollisions();
-}
-
-/**
- * Mueve los proyectiles y los elimina si salen de pantalla
- */
-function moveProjectiles() {
-    // Proyectiles del jugador
-    for (let i = playerProjectiles.length - 1; i >= 0; i--) {
-        playerProjectiles[i].y += playerProjectiles[i].speed;
-
-        // Eliminar si sale de la pantalla
-        if (playerProjectiles[i].y < 0) {
-            playerProjectiles.splice(i, 1);
+    drawInvaders() {
+        for (const invader of GameState.invaders) {
+            if (!invader.alive) continue;
+            
+            ctx.fillStyle = '#ff00ff';
+            ctx.fillRect(invader.x, invader.y, invader.width, invader.height);
+            
+            // Detalles
+            ctx.fillStyle = '#00ffff';
+            ctx.fillRect(invader.x + 5, invader.y + 5, invader.width - 10, 5);
+            ctx.fillRect(invader.x + 5, invader.y + invader.height - 10, invader.width - 10, 5);
+            ctx.fillRect(invader.x + 15, invader.y + 10, 10, invader.height - 20);
         }
-    }
+    },
 
-    // Proyectiles enemigos
-    for (let i = enemyProjectiles.length - 1; i >= 0; i--) {
-        enemyProjectiles[i].y += enemyProjectiles[i].speed;
-
-        // Eliminar si sale de la pantalla
-        if (enemyProjectiles[i].y > canvas.height) {
-            enemyProjectiles.splice(i, 1);
+    drawProjectiles() {
+        // Proyectiles del jugador
+        ctx.fillStyle = '#00ff00';
+        for (const p of GameState.playerProjectiles) {
+            ctx.fillRect(p.x, p.y, p.width, p.height);
         }
-    }
-}
-
-/**
- * Mueve el UFO y lo crea aleatoriamente
- * MEJORA: Mayor probabilidad y frecuencia
- */
-function moveUFO() {
-    const currentTime = Date.now();
-
-    // Crear UFO aleatoriamente con mayor frecuencia
-    if (!ufo && currentTime - lastUfoTime > UFO_APPEARANCE_INTERVAL &&
-        Math.random() < UFO_APPEARANCE_CHANCE) {
-        createUFO();
-        lastUfoTime = currentTime;
-        return; // Salir temprano si acabamos de crear un nuevo OVNI
-    }
-
-    // Mover UFO si existe
-    if (ufo) {
-        ufo.x += ufo.speed;
-
-        // Eliminar si sale de la pantalla
-        if (ufo.x > canvas.width) {
-            ufo = null;
-            return; // Salir después de eliminar el OVNI
+        
+        // Proyectiles enemigos
+        ctx.fillStyle = '#ff0000';
+        for (const p of GameState.enemyProjectiles) {
+            ctx.fillRect(p.x, p.y, p.width, p.height);
         }
-    }
-}
+    },
 
-/**
- * Dibuja todos los elementos en el canvas
- */
-function draw() {
-    // Limpiar canvas
-    ctx.fillStyle = '#000000';
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-    // Dibujar jugador
-    ctx.fillStyle = '#00ff00';
-    ctx.fillRect(player.x, player.y, player.width, player.height);
-
-    // Dibujar base del jugador
-    ctx.fillStyle = '#00ff00';
-    ctx.beginPath();
-    ctx.moveTo(player.x, player.y);
-    ctx.lineTo(player.x + player.width, player.y);
-    ctx.lineTo(player.x + player.width / 2, player.y - 15);
-    ctx.closePath();
-    ctx.fill();
-
-    // Dibujar invasores
-    for (const invader of invaders) {
-        if (!invader.alive) continue;
-
-        ctx.fillStyle = '#ff00ff';
-        ctx.fillRect(invader.x, invader.y, invader.width, invader.height);
-
-        // Detalles del invasor
-        ctx.fillStyle = '#00ffff';
-        ctx.fillRect(invader.x + 5, invader.y + 5, invader.width - 10, 5);
-        ctx.fillRect(invader.x + 5, invader.y + invader.height - 10, invader.width - 10, 5);
-        ctx.fillRect(invader.x + 15, invader.y + 10, 10, invader.height - 20);
-    }
-
-    // Dibujar proyectiles del jugador
-    ctx.fillStyle = '#00ff00';
-    for (const projectile of playerProjectiles) {
-        ctx.fillRect(projectile.x, projectile.y, projectile.width, projectile.height);
-    }
-
-    // Dibujar proyectiles enemigos
-    ctx.fillStyle = '#ff0000';
-    for (const projectile of enemyProjectiles) {
-        ctx.fillRect(projectile.x, projectile.y, projectile.width, projectile.height);
-    }
-
-    // Dibujar escudos
-    for (const shield of shields) {
-        if (shield.health > 0) {
-            // Escudo con degradado según salud
+    drawShields() {
+        for (const shield of GameState.shields) {
+            if (shield.health <= 0) continue;
+            
             const greenValue = Math.floor(255 * (shield.health / 100));
             ctx.fillStyle = `rgb(0, ${greenValue}, 0)`;
-
-            // Dibujar escudo con forma irregular
+            
             ctx.beginPath();
             ctx.moveTo(shield.x, shield.y + shield.height);
             ctx.lineTo(shield.x + 10, shield.y + shield.height - 10);
@@ -829,108 +764,156 @@ function draw() {
             ctx.closePath();
             ctx.fill();
         }
-    }
+    },
 
-    // Dibujar OVNI
-    if (ufo) {
+    drawUFO() {
+        if (!GameState.ufo) return;
+        
         ctx.fillStyle = '#ffff00';
         ctx.beginPath();
-        ctx.ellipse(ufo.x + ufo.width / 2, ufo.y + ufo.height / 2,
-            ufo.width / 2, ufo.height / 2, 0, 0, Math.PI * 2);
+        ctx.ellipse(GameState.ufo.x + GameState.ufo.width / 2, 
+                    GameState.ufo.y + GameState.ufo.height / 2,
+                    GameState.ufo.width / 2, GameState.ufo.height / 2, 
+                    0, 0, Math.PI * 2);
         ctx.fill();
-
-        // Detalles del OVNI
+        
+        // Detalles
         ctx.fillStyle = '#ff6600';
-        ctx.fillRect(ufo.x + 10, ufo.y + 5, ufo.width - 20, 5);
-        ctx.fillRect(ufo.x + 15, ufo.y + ufo.height - 10, ufo.width - 30, 5);
+        ctx.fillRect(GameState.ufo.x + 10, GameState.ufo.y + 5, 
+                     GameState.ufo.width - 20, 5);
+        ctx.fillRect(GameState.ufo.x + 15, GameState.ufo.y + GameState.ufo.height - 10, 
+                     GameState.ufo.width - 30, 5);
+    },
+
+    drawUI() {
+        ctx.fillStyle = '#00ffff';
+        ctx.font = '16px "Courier New"';
+        ctx.fillText(`NIVEL: ${GameState.level}`, 10, 25);
+        
+        if (GameState.paused) {
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+            ctx.fillRect(0, 0, DOM.canvas.width, DOM.canvas.height);
+            
+            ctx.fillStyle = '#00ff00';
+            ctx.font = '48px "Courier New"';
+            ctx.textAlign = 'center';
+            ctx.fillText('PAUSA', DOM.canvas.width / 2, DOM.canvas.height / 2);
+            ctx.font = '16px "Courier New"';
+            ctx.fillText('Presiona P o ESC para continuar', 
+                        DOM.canvas.width / 2, DOM.canvas.height / 2 + 40);
+            ctx.textAlign = 'left';
+        }
+    },
+
+    render() {
+        this.clear();
+        this.drawPlayer();
+        this.drawInvaders();
+        this.drawProjectiles();
+        this.drawShields();
+        this.drawUFO();
+        this.drawUI();
     }
+};
 
-    // Dibujar información del nivel
-    ctx.fillStyle = '#00ffff';
-    ctx.font = '16px "Courier New"';
-    ctx.fillText(`NIVEL: ${level}`, 10, 25);
-}
+// ===== CONTROL DEL JUEGO =====
+const Game = {
+    init() {
+        GameState.reset();
+        GameState.invaders = EntityFactory.createInvaders();
+        GameState.shields = EntityFactory.createShields();
+        
+        UI.updateScore();
+        UI.updateLives();
+        UI.hideScreens();
+        
+        this.start();
+    },
 
-/**
- * Bucle principal del juego
- */
-function gameLoop() {
-    update();
-    draw();
+    start() {
+        GameState.active = true;
+        this.loop();
+        this.inputLoop();
+    },
 
-    if (gameActive) {
-        animationId = requestAnimationFrame(gameLoop);
+    togglePause() {
+        if (!GameState.active) return;
+        GameState.paused = !GameState.paused;
+    },
+
+    update() {
+        if (!GameState.active || GameState.paused) return;
+        
+        EnemyController.move();
+        EnemyController.shoot();
+        ProjectileSystem.update();
+        UFOController.update();
+        CollisionSystem.checkAll();
+    },
+
+    loop() {
+        this.update();
+        Renderer.render();
+        
+        if (GameState.active) {
+            GameState.animationId = requestAnimationFrame(() => this.loop());
+        }
+    },
+
+    inputLoop() {
+        if (!GameState.active) return;
+        PlayerController.handleMovement();
+        GameState.inputAnimationId = requestAnimationFrame(() => this.inputLoop());
+    },
+
+    nextLevel() {
+        GameState.level++;
+        
+        // Mostrar pantalla de nivel completado
+        UI.showLevelComplete();
+        
+        // Pausar el juego temporalmente
+        GameState.paused = true;
+        
+        setTimeout(() => {
+            // Limpiar proyectiles
+            GameState.playerProjectiles = [];
+            GameState.enemyProjectiles = [];
+            
+            // Reparar escudos
+            for (const shield of GameState.shields) {
+                shield.health = CONFIG.SHIELD.MAX_HEALTH;
+            }
+            
+            // Crear nueva oleada
+            GameState.invaders = EntityFactory.createInvaders();
+            GameState.enemySpeed = CONFIG.ENEMY.BASE_SPEED + GameState.level * 0.3;
+            
+            // Reanudar el juego
+            GameState.paused = false;
+        }, 2500);
+    },
+
+    over() {
+        GameState.active = false;
+        cancelAnimationFrame(GameState.animationId);
+        cancelAnimationFrame(GameState.inputAnimationId);
+        UI.showGameOver();
     }
-}
+};
 
-// ===== CONTROL DE TECLADO =====
+// ===== INICIALIZACIÓN =====
+PlayerController.init();
 
-// Estado de teclas presionadas
-const keys = {};
-
-/**
- * Maneja las teclas presionadas
- */
-window.addEventListener('keydown', (e) => {
-    keys[e.key] = true;
-
-    // Disparar con espacio
-    if (e.key === ' ' && gameActive) {
-        playerShoot();
-        e.preventDefault(); // Evitar scroll con espacio
-    }
+DOM.startBtn.addEventListener('click', () => {
+    cancelAnimationFrame(GameState.inputAnimationId);
+    Game.init();
 });
 
-/**
- * Maneja las teclas liberadas
- */
-window.addEventListener('keyup', (e) => {
-    keys[e.key] = false;
+DOM.restartBtn.addEventListener('click', () => {
+    cancelAnimationFrame(GameState.inputAnimationId);
+    Game.init();
 });
 
-/**
- * Actualiza el movimiento del jugador según teclas presionadas
- */
-function handlePlayerMovement() {
-    if (keys['ArrowLeft'] || keys['a'] || keys['A']) {
-        movePlayer(-1);
-    }
-    if (keys['ArrowRight'] || keys['d'] || keys['D']) {
-        movePlayer(1);
-    }
-}
-
-/**
- * Bucle para el movimiento continuo del jugador
- * MEJORA: Ahora respeta gameActive y se cancela correctamente
- */
-function inputLoop() {
-    if (!gameActive) return;
-    handlePlayerMovement();
-    inputAnimationId = requestAnimationFrame(inputLoop);
-}
-
-// ===== INICIALIZACIÓN Y EVENTOS =====
-
-/**
- * Iniciar juego al hacer clic en el botón
- */
-startBtn.addEventListener('click', () => {
-    cancelAnimationFrame(inputAnimationId); // MEJORA: Cancelar anterior
-    initGame();
-    inputLoop();
-});
-
-/**
- * Reiniciar juego
- */
-restartBtn.addEventListener('click', () => {
-    cancelAnimationFrame(inputAnimationId); // MEJORA: Cancelar anterior
-    initGame();
-    inputLoop();
-});
-
-/**
- * Inicializar vidas al cargar la página
- */
-updateLives();
+// Inicializar UI
+UI.updateLives();

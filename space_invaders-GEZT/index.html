@@ -3,44 +3,359 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Space Invaders</title>
-    <link rel="stylesheet" href="style.css">
+    <title>Space Invaders - Retro Edition</title>
+    <style>
+        /* ===== MENSAJE DE ACTIVACIÓN DE SONIDO ===== */
+        #soundPrompt {
+            position: fixed;
+            top: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: linear-gradient(135deg, rgba(0, 255, 0, 0.1), rgba(0, 255, 255, 0.1));
+            border: 2px solid rgba(0, 255, 0, 0.5);
+            color: #00ff00;
+            padding: 12px 24px;
+            border-radius: 8px;
+            font-family: 'Courier New', monospace;
+            font-size: 14px;
+            z-index: 1000;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            box-shadow: 0 4px 15px rgba(0, 255, 0, 0.2);
+            transition: opacity 0.3s ease;
+        }
+
+        #soundPrompt span {
+            cursor: pointer;
+            font-weight: bold;
+            color: #00ffff;
+            text-decoration: underline;
+        }
+
+        #soundPrompt span:hover {
+            color: #00ff00;
+        }
+
+        /* ===== ESTILOS GENERALES ===== */
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Courier New', monospace;
+            background-color: #121212;
+            color: #00ff00;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            overflow: hidden;
+        }
+
+        .game-container {
+            position: relative;
+            width: 800px;
+            max-width: 95vw;
+            margin: 0 auto;
+        }
+
+        .info-panel {
+            display: flex;
+            justify-content: space-between;
+            padding: 10px 0;
+            font-size: 1.2rem;
+            color: #00ffff;
+            width: 100%;
+        }
+
+        .score-container, .lives-container {
+            display: flex;
+            align-items: center;
+        }
+
+        .score-label, .lives-label {
+            margin-right: 10px;
+        }
+
+        .lives {
+            display: flex;
+            gap: 5px;
+        }
+
+        .life {
+            width: 20px;
+            height: 20px;
+            background-color: #0f0;
+            border-radius: 50%;
+            display: inline-block;
+            transition: all 0.3s ease;
+            box-shadow: 0 0 5px #0f0;
+        }
+
+        .life.lost {
+            animation: lifeLost 1s ease-out forwards;
+        }
+
+        @keyframes lifeLost {
+            0% { 
+                transform: scale(1);
+                background-color: #0f0;
+                box-shadow: 0 0 5px #0f0;
+                opacity: 1;
+            }
+            25% { 
+                transform: scale(1.5);
+                background-color: #ff0;
+                box-shadow: 0 0 20px #ff0;
+            }
+            50% { 
+                transform: scale(1.8) rotate(180deg);
+                background-color: #f80;
+                box-shadow: 0 0 25px #f80;
+            }
+            75% {
+                transform: scale(1.3) rotate(360deg);
+                background-color: #f00;
+                box-shadow: 0 0 15px #f00;
+            }
+            100% { 
+                transform: scale(0);
+                background-color: #f00;
+                box-shadow: 0 0 0 #f00;
+                opacity: 0;
+            }
+        }
+
+        @keyframes screenShake {
+            0%, 100% { transform: translate(0, 0); }
+            10% { transform: translate(-5px, 2px); }
+            20% { transform: translate(5px, -2px); }
+            30% { transform: translate(-5px, -2px); }
+            40% { transform: translate(5px, 2px); }
+            50% { transform: translate(-5px, 2px); }
+            60% { transform: translate(5px, -2px); }
+            70% { transform: translate(-5px, -2px); }
+            80% { transform: translate(5px, 2px); }
+            90% { transform: translate(-5px, 0); }
+        }
+
+        .screen-shake {
+            animation: screenShake 0.5s ease-out;
+        }
+
+        #gameCanvas {
+            background-color: #000000;
+            border: 2px solid #00ff00;
+            display: block;
+            margin: 0 auto;
+            width: 100%;
+            height: 500px;
+            box-shadow: 0 0 20px rgba(0, 255, 0, 0.3);
+        }
+
+        .screen {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            background-color: rgba(0, 0, 0, 0.9);
+            z-index: 10;
+            color: #00ff00;
+            text-align: center;
+        }
+
+        .screen h1 {
+            font-size: 3rem;
+            margin-bottom: 20px;
+            color: #ff00ff;
+            text-shadow: 0 0 10px #ff00ff, 0 0 20px #ff00ff;
+            animation: glow 2s ease-in-out infinite;
+        }
+
+        @keyframes glow {
+            0%, 100% { text-shadow: 0 0 10px #ff00ff, 0 0 20px #ff00ff; }
+            50% { text-shadow: 0 0 20px #ff00ff, 0 0 30px #ff00ff, 0 0 40px #ff00ff; }
+        }
+
+        .screen p {
+            font-size: 1.2rem;
+            margin-bottom: 30px;
+            max-width: 80%;
+        }
+
+        .btn {
+            background-color: transparent;
+            color: #00ff00;
+            border: 2px solid #00ff00;
+            padding: 12px 30px;
+            font-size: 1.2rem;
+            font-family: 'Courier New', monospace;
+            cursor: pointer;
+            transition: all 0.3s;
+            margin-top: 10px;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .btn::before {
+            content: '';
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 0;
+            height: 0;
+            border-radius: 50%;
+            background: rgba(0, 255, 0, 0.3);
+            transform: translate(-50%, -50%);
+            transition: width 0.3s, height 0.3s;
+        }
+
+        .btn:hover::before {
+            width: 300px;
+            height: 300px;
+        }
+
+        .btn:hover {
+            background-color: #00ff00;
+            color: #000000;
+            box-shadow: 0 0 20px #00ff00;
+            transform: scale(1.05);
+        }
+
+        .btn:active {
+            transform: scale(0.98);
+        }
+
+        .level-complete-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.85);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+            transition: opacity 0.3s ease;
+        }
+
+        .level-complete-content {
+            text-align: center;
+            color: #00ff00;
+            animation: slideIn 0.5s ease-out;
+        }
+
+        .level-complete-content h2 {
+            font-size: 3rem;
+            margin-bottom: 20px;
+            color: #00ffff;
+            text-shadow: 0 0 20px #00ffff, 0 0 40px #00ffff;
+            animation: pulse 1s ease-in-out infinite;
+        }
+
+        .level-complete-content p {
+            font-size: 1.5rem;
+            color: #00ff00;
+        }
+
+        @keyframes slideIn {
+            from {
+                transform: translateY(-50px);
+                opacity: 0;
+            }
+            to {
+                transform: translateY(0);
+                opacity: 1;
+            }
+        }
+
+        @keyframes pulse {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.1); }
+        }
+
+        .instructions {
+            margin-top: 20px;
+            text-align: center;
+            color: #00ffff;
+            font-size: 0.9rem;
+            max-width: 800px;
+            padding: 0 10px;
+            line-height: 1.6;
+        }
+
+        .instructions strong {
+            color: #00ff00;
+        }
+
+        @media (max-width: 600px) {
+            .info-panel {
+                font-size: 1rem;
+            }
+            
+            .screen h1 {
+                font-size: 2rem;
+            }
+            
+            .screen p {
+                font-size: 1rem;
+            }
+            
+            .btn {
+                font-size: 1rem;
+                padding: 10px 20px;
+            }
+            
+            .level-complete-content h2 {
+                font-size: 2rem;
+            }
+            
+            .level-complete-content p {
+                font-size: 1.2rem;
+            }
+        }
+    </style>
 </head>
 <body>
     <div class="game-container">
-        <!-- Panel de información -->
         <div class="info-panel">
             <div class="score-container">
-                <span class="score-label">SCORE:</span>
+                <span class="score-label">PUNTUACIÓN:</span>
                 <span id="score">0</span>
             </div>
             <div class="lives-container">
-                <span class="lives-label">LIVES:</span>
-                <div class="lives" id="lives"></div>
+                <span class="lives-label">VIDAS:</span>
+                <div id="lives" class="lives"></div>
             </div>
         </div>
-        
-        <!-- Canvas del juego -->
+
         <canvas id="gameCanvas" width="800" height="500"></canvas>
-        
-        <!-- Pantalla de inicio -->
+
         <div id="startScreen" class="screen">
             <h1>SPACE INVADERS</h1>
             <p>Defiende la Tierra de la invasión alienígena</p>
             <button id="startBtn" class="btn">INICIAR JUEGO</button>
+            <div class="instructions">
+                <p><strong>Controles:</strong> Flechas o A/D para mover • Espacio para disparar • P o ESC para pausar</p>
+                <p>Destruye todos los invasores antes de que lleguen al suelo. ¡Cuidado con sus disparos!</p>
+            </div>
         </div>
-        
-        <!-- Pantalla de Game Over -->
+
         <div id="gameOverScreen" class="screen" style="display: none;">
             <h1>GAME OVER</h1>
             <p id="finalScore">Tu puntuación: 0</p>
             <button id="restartBtn" class="btn">JUGAR DE NUEVO</button>
         </div>
-    </div>
-    
-    <!-- Instrucciones -->
-    <div class="instructions">
-        <p>CONTROLES: ← → para moverse | ESPACIO para disparar</p>
     </div>
 
     <script src="script.js"></script>
