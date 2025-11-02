@@ -83,24 +83,24 @@ function initGame() {
     enemySpeed = 1;
     updateScore();
     updateLives();
-    
+
     // Limpiar arrays
     invaders = [];
     playerProjectiles = [];
     enemyProjectiles = [];
     shields = [];
     ufo = null;
-    
+
     // Crear invasores
     createInvaders();
-    
+
     // Crear escudos
     createShields();
-    
+
     // Ocultar pantallas
     startScreen.style.display = 'none';
     gameOverScreen.style.display = 'none';
-    
+
     // Iniciar bucle del juego
     gameLoop();
 }
@@ -131,7 +131,7 @@ function createInvaders() {
 function createShields() {
     const shieldCount = 4;
     const shieldSpacing = canvas.width / (shieldCount + 1);
-    
+
     for (let i = 1; i <= shieldCount; i++) {
         shields.push({
             x: shieldSpacing * i - SHIELD_WIDTH / 2,
@@ -197,9 +197,9 @@ function countAliveInvaders() {
  */
 function movePlayer(direction) {
     if (!gameActive) return;
-    
+
     player.x += player.speed * direction;
-    
+
     // Limitar movimiento dentro del canvas
     if (player.x < 0) player.x = 0;
     if (player.x + player.width > canvas.width) {
@@ -213,7 +213,7 @@ function movePlayer(direction) {
  */
 function playerShoot() {
     if (!gameActive || playerProjectiles.length >= MAX_PLAYER_PROJECTILES) return;
-    
+
     playerProjectiles.push({
         x: player.x + player.width / 2 - 2,
         y: player.y,
@@ -231,11 +231,11 @@ function playerShoot() {
 function moveInvaders() {
     let moveDown = false;
     const margin = 20; // Margen para evitar que toquen los bordes
-    
+
     // Verificar si algún invasor ha llegado al borde
     for (const invader of invaders) {
         if (!invader.alive) continue;
-        
+
         // Añadimos márgenes para que no toquen exactamente los bordes
         if ((invader.x + invader.width >= canvas.width - margin && enemyDirection === 1) ||
             (invader.x <= margin && enemyDirection === -1)) {
@@ -243,28 +243,28 @@ function moveInvaders() {
             break;
         }
     }
-    
+
     // Cambiar dirección antes de mover
     if (moveDown) {
         enemyDirection *= -1;
     }
-    
+
     // Mover invasores
     let lowestInvaderY = 0;
     for (const invader of invaders) {
         if (!invader.alive) continue;
-        
+
         if (moveDown) {
             invader.y += 15; // Movimiento fijo hacia abajo
         }
         invader.x += enemySpeed * enemyDirection;
-        
+
         // Registrar la posición Y más baja
         if (invader.y + invader.height > lowestInvaderY) {
             lowestInvaderY = invader.y + invader.height;
         }
     }
-    
+
     // Verificar game over solo una vez por frame, usando la posición más baja
     if (lowestInvaderY >= player.y - 80) { // Aumentado el margen de seguridad
         gameOver();
@@ -277,16 +277,16 @@ function moveInvaders() {
  */
 function enemyShoot() {
     if (!gameActive || invaders.length === 0) return;
-    
+
     const currentTime = Date.now();
     if (currentTime - lastEnemyShotTime < 1000) return; // Disparar cada segundo
-    
+
     // Seleccionar un invasor aleatorio vivo
     const aliveInvaders = invaders.filter(inv => inv.alive);
     if (aliveInvaders.length === 0) return;
-    
+
     const shooter = aliveInvaders[Math.floor(Math.random() * aliveInvaders.length)];
-    
+
     enemyProjectiles.push({
         x: shooter.x + shooter.width / 2 - 2,
         y: shooter.y + shooter.height,
@@ -294,7 +294,7 @@ function enemyShoot() {
         height: 10,
         speed: PROJECTILE_SPEED // Hacia abajo
     });
-    
+
     lastEnemyShotTime = currentTime;
 }
 
@@ -308,9 +308,9 @@ function enemyShoot() {
  */
 function checkCollision(rect1, rect2) {
     return rect1.x < rect2.x + rect2.width &&
-           rect1.x + rect1.width > rect2.x &&
-           rect1.y < rect2.y + rect2.height &&
-           rect1.y + rect1.height > rect2.y;
+        rect1.x + rect1.width > rect2.x &&
+        rect1.y < rect2.y + rect2.height &&
+        rect1.y + rect1.height > rect2.y;
 }
 
 /**
@@ -321,65 +321,87 @@ function checkProjectileCollisions() {
     for (let i = playerProjectiles.length - 1; i >= 0; i--) {
         const projectile = playerProjectiles[i];
         
+        // Verificar si el proyectil es indefinido
+        if (!projectile) {
+            console.warn('Proyectil indefinido encontrado en el índice', i, 'de playerProjectiles');
+            playerProjectiles.splice(i, 1);
+            continue;
+        }
+
         // Colisión con invasores
         for (let j = invaders.length - 1; j >= 0; j--) {
             const invader = invaders[j];
+            
+            // Verificar si el invasor es indefinido
+            if (!invader) {
+                console.warn('Invasor indefinido encontrado en el índice', j, 'de invaders');
+                continue;
+            }
+            
             if (invader.alive && checkCollision(projectile, invader)) {
                 // Eliminar proyectil e invasor
                 playerProjectiles.splice(i, 1);
                 invader.alive = false;
-                
+
                 // Aumentar puntuación
                 score += invader.points;
                 updateScore();
-                
+
                 // MEJORA: Recalcular contador en lugar de decrementarlo (más seguro)
                 aliveInvadersCount = countAliveInvaders();
-                
+
                 // Aumentar velocidad de invasores según cuántos quedan, pero con un límite más bajo
                 enemySpeed = 1 + (1 - aliveInvadersCount / (ENEMY_ROWS * ENEMY_COLS)) * 1.5;
-                
+
                 // Verificar si todos los invasores fueron eliminados
                 if (aliveInvadersCount === 0) {
                     nextLevel();
                 }
-                
+
                 break;
             }
         }
-        
+
         // Colisión con OVNI
-        if (ufo && checkCollision(projectile, ufo)) {
+        if (ufo && projectile && checkCollision(projectile, ufo)) {
             playerProjectiles.splice(i, 1);
             score += ufo.points;
             updateScore();
             ufo = null;
+            break; // Salir del bucle después de destruir el OVNI
         }
-        
+
         // Colisión con escudos
         for (const shield of shields) {
-            if (shield.health > 0 && checkCollision(projectile, shield)) {
+            if (shield && shield.health > 0 && checkCollision(projectile, shield)) {
                 playerProjectiles.splice(i, 1);
                 shield.health -= 25;
                 break;
             }
         }
     }
-    
+
     // Proyectiles enemigos vs jugador
     for (let i = enemyProjectiles.length - 1; i >= 0; i--) {
         const projectile = enemyProjectiles[i];
         
+        // Verificar si el proyectil es indefinido
+        if (!projectile) {
+            console.warn('Proyectil enemigo indefinido encontrado en el índice', i, 'de enemyProjectiles');
+            enemyProjectiles.splice(i, 1);
+            continue;
+        }
+
         // Colisión con jugador
-        if (checkCollision(projectile, player)) {
+        if (player && checkCollision(projectile, player)) {
             enemyProjectiles.splice(i, 1);
             loseLife();
             break;
         }
-        
+
         // Colisión con escudos
         for (const shield of shields) {
-            if (shield.health > 0 && checkCollision(projectile, shield)) {
+            if (shield && shield.health > 0 && checkCollision(projectile, shield)) {
                 enemyProjectiles.splice(i, 1);
                 shield.health -= 25;
                 break;
@@ -396,7 +418,7 @@ function checkProjectileCollisions() {
 function loseLife() {
     lives--;
     updateLives();
-    
+
     if (lives <= 0) {
         gameOver();
     }
@@ -407,16 +429,16 @@ function loseLife() {
  */
 function nextLevel() {
     level++;
-    
+
     // Limpiar proyectiles
     playerProjectiles = [];
     enemyProjectiles = [];
-    
+
     // Reparar escudos
     for (const shield of shields) {
         shield.health = 100;
     }
-    
+
     // Crear nueva oleada de invasores más cerca y más rápidos
     createInvaders();
     aliveInvadersCount = invaders.length; // MEJORA: Actualizar contador
@@ -433,7 +455,7 @@ function gameOver() {
     gameActive = false;
     cancelAnimationFrame(animationId);
     cancelAnimationFrame(inputAnimationId); // MEJORA: Cancelar input loop
-    
+
     finalScoreDisplay.textContent = `Tu puntuación: ${score}`;
     gameOverScreen.style.display = 'flex';
 }
@@ -445,19 +467,19 @@ function gameOver() {
  */
 function update() {
     if (!gameActive) return;
-    
+
     // Mover invasores
     moveInvaders();
-    
+
     // Disparo enemigo
     enemyShoot();
-    
+
     // Mover proyectiles
     moveProjectiles();
-    
+
     // Mover OVNI
     moveUFO();
-    
+
     // Verificar colisiones
     checkProjectileCollisions();
 }
@@ -469,17 +491,17 @@ function moveProjectiles() {
     // Proyectiles del jugador
     for (let i = playerProjectiles.length - 1; i >= 0; i--) {
         playerProjectiles[i].y += playerProjectiles[i].speed;
-        
+
         // Eliminar si sale de la pantalla
         if (playerProjectiles[i].y < 0) {
             playerProjectiles.splice(i, 1);
         }
     }
-    
+
     // Proyectiles enemigos
     for (let i = enemyProjectiles.length - 1; i >= 0; i--) {
         enemyProjectiles[i].y += enemyProjectiles[i].speed;
-        
+
         // Eliminar si sale de la pantalla
         if (enemyProjectiles[i].y > canvas.height) {
             enemyProjectiles.splice(i, 1);
@@ -493,21 +515,23 @@ function moveProjectiles() {
  */
 function moveUFO() {
     const currentTime = Date.now();
-    
+
     // Crear UFO aleatoriamente con mayor frecuencia
-    if (!ufo && currentTime - lastUfoTime > UFO_APPEARANCE_INTERVAL && 
+    if (!ufo && currentTime - lastUfoTime > UFO_APPEARANCE_INTERVAL &&
         Math.random() < UFO_APPEARANCE_CHANCE) {
         createUFO();
         lastUfoTime = currentTime;
+        return; // Salir temprano si acabamos de crear un nuevo OVNI
     }
-    
-    // Mover UFO
+
+    // Mover UFO si existe
     if (ufo) {
         ufo.x += ufo.speed;
-        
+
         // Eliminar si sale de la pantalla
         if (ufo.x > canvas.width) {
             ufo = null;
+            return; // Salir después de eliminar el OVNI
         }
     }
 }
@@ -519,11 +543,11 @@ function draw() {
     // Limpiar canvas
     ctx.fillStyle = '#000000';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
-    
+
     // Dibujar jugador
     ctx.fillStyle = '#00ff00';
     ctx.fillRect(player.x, player.y, player.width, player.height);
-    
+
     // Dibujar base del jugador
     ctx.fillStyle = '#00ff00';
     ctx.beginPath();
@@ -532,40 +556,40 @@ function draw() {
     ctx.lineTo(player.x + player.width / 2, player.y - 15);
     ctx.closePath();
     ctx.fill();
-    
+
     // Dibujar invasores
     for (const invader of invaders) {
         if (!invader.alive) continue;
-        
+
         ctx.fillStyle = '#ff00ff';
         ctx.fillRect(invader.x, invader.y, invader.width, invader.height);
-        
+
         // Detalles del invasor
         ctx.fillStyle = '#00ffff';
         ctx.fillRect(invader.x + 5, invader.y + 5, invader.width - 10, 5);
         ctx.fillRect(invader.x + 5, invader.y + invader.height - 10, invader.width - 10, 5);
         ctx.fillRect(invader.x + 15, invader.y + 10, 10, invader.height - 20);
     }
-    
+
     // Dibujar proyectiles del jugador
     ctx.fillStyle = '#00ff00';
     for (const projectile of playerProjectiles) {
         ctx.fillRect(projectile.x, projectile.y, projectile.width, projectile.height);
     }
-    
+
     // Dibujar proyectiles enemigos
     ctx.fillStyle = '#ff0000';
     for (const projectile of enemyProjectiles) {
         ctx.fillRect(projectile.x, projectile.y, projectile.width, projectile.height);
     }
-    
+
     // Dibujar escudos
     for (const shield of shields) {
         if (shield.health > 0) {
             // Escudo con degradado según salud
             const greenValue = Math.floor(255 * (shield.health / 100));
             ctx.fillStyle = `rgb(0, ${greenValue}, 0)`;
-            
+
             // Dibujar escudo con forma irregular
             ctx.beginPath();
             ctx.moveTo(shield.x, shield.y + shield.height);
@@ -580,21 +604,21 @@ function draw() {
             ctx.fill();
         }
     }
-    
+
     // Dibujar OVNI
     if (ufo) {
         ctx.fillStyle = '#ffff00';
         ctx.beginPath();
-        ctx.ellipse(ufo.x + ufo.width / 2, ufo.y + ufo.height / 2, 
-                   ufo.width / 2, ufo.height / 2, 0, 0, Math.PI * 2);
+        ctx.ellipse(ufo.x + ufo.width / 2, ufo.y + ufo.height / 2,
+            ufo.width / 2, ufo.height / 2, 0, 0, Math.PI * 2);
         ctx.fill();
-        
+
         // Detalles del OVNI
         ctx.fillStyle = '#ff6600';
         ctx.fillRect(ufo.x + 10, ufo.y + 5, ufo.width - 20, 5);
         ctx.fillRect(ufo.x + 15, ufo.y + ufo.height - 10, ufo.width - 30, 5);
     }
-    
+
     // Dibujar información del nivel
     ctx.fillStyle = '#00ffff';
     ctx.font = '16px "Courier New"';
@@ -607,7 +631,7 @@ function draw() {
 function gameLoop() {
     update();
     draw();
-    
+
     if (gameActive) {
         animationId = requestAnimationFrame(gameLoop);
     }
@@ -623,7 +647,7 @@ const keys = {};
  */
 window.addEventListener('keydown', (e) => {
     keys[e.key] = true;
-    
+
     // Disparar con espacio
     if (e.key === ' ' && gameActive) {
         playerShoot();
