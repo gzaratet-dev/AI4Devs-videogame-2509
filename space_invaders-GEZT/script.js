@@ -97,40 +97,50 @@ const AudioManager = {
         }
     },
 
-    // Sistema de música de fondo procedural
+    // Sistema de música de fondo estilo retro (inspirado pero original)
     startBackgroundMusic() {
         if (!this.enabled || this.musicPlaying) return;
         
         this.musicPlaying = true;
         
-        // Secuencia de notas (escala menor para ambiente espacial)
-        const notes = [
-            { freq: 220, duration: 0.4 },   // A3
-            { freq: 220, duration: 0.4 },   // A3
-            { freq: 246.94, duration: 0.4 }, // B3
-            { freq: 220, duration: 0.4 },   // A3
-            { freq: 196, duration: 0.4 },   // G3
-            { freq: 174.61, duration: 0.4 }, // F3
-            { freq: 196, duration: 0.4 },   // G3
-            { freq: 220, duration: 0.8 }    // A3 (más larga)
+        // Patrón de 4 notas descendentes (inspirado en el estilo clásico pero con frecuencias originales)
+        const baseNotes = [
+            { freq: 196, duration: 0.3 },   // G3
+            { freq: 174.61, duration: 0.3 }, // F3
+            { freq: 146.83, duration: 0.3 }, // D3
+            { freq: 130.81, duration: 0.3 }  // C3
         ];
 
         let noteIndex = 0;
+        let currentInterval = null;
+        
+        const calculateTempo = () => {
+            if (!GameState.invaders || GameState.invaders.length === 0) return 500;
+            
+            // Calcular enemigos vivos
+            const aliveCount = GameState.invaders.filter(inv => inv.alive).length;
+            const totalCount = CONFIG.ENEMY.ROWS * CONFIG.ENEMY.COLS;
+            
+            // Acelerar el ritmo conforme mueren enemigos (de 500ms a 150ms)
+            const ratio = aliveCount / totalCount;
+            return Math.max(150, 500 * ratio);
+        };
+        
         const playNote = () => {
             if (!this.musicPlaying || !this.enabled) return;
 
-            const note = notes[noteIndex % notes.length];
+            const note = baseNotes[noteIndex % baseNotes.length];
             
             const osc = this.context.createOscillator();
             const gain = this.context.createGain();
             
-            osc.type = 'square';
+            osc.type = 'square'; // Sonido cuadrado típico de arcade
             osc.frequency.value = note.freq;
             
             const now = this.context.currentTime;
             gain.gain.setValueAtTime(0, now);
-            gain.gain.linearRampToValueAtTime(0.3, now + 0.05);
-            gain.gain.linearRampToValueAtTime(0, now + note.duration);
+            gain.gain.linearRampToValueAtTime(0.25, now + 0.01);
+            gain.gain.exponentialRampToValueAtTime(0.01, now + note.duration * 0.8);
             
             osc.connect(gain);
             gain.connect(this.musicGain);
@@ -140,8 +150,9 @@ const AudioManager = {
             
             noteIndex++;
             
-            // Programar siguiente nota
-            setTimeout(playNote, note.duration * 1000);
+            // Ajustar tempo según enemigos vivos (característica icónica)
+            const tempo = calculateTempo();
+            currentInterval = setTimeout(playNote, tempo);
         };
 
         playNote();
